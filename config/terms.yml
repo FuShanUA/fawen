@@ -1,0 +1,48 @@
+# PostOS Terminology Glossary (YAML)
+# Format: "Source Term": "Target Term" # Notes
+
+"Agent": "智能体"
+"Agentic Infrastructure": "智能体基础设施" # 核心术语
+"FDE": "前线部署工程师 或 FDE模式，视语境而定" # Forward Deployed Engineer/Engineering
+"Data Governance": "数据治理" # 严格使用全称
+"Governance Plane": "治理面" # 控制架构术语
+"Data Elements": "数据要素" # 国内政策术语
+"DCMM": "数据管理能力成熟度模型" # 国家标准
+"Snowflake": "Snowflake 平台" # 具象化基础设施
+"Databricks": "Databricks 平台"
+"Vector Database": "向量数据库"
+"Knowledge Graph": "知识图谱"
+"Context Window": "上下文窗口"
+"RAG": "检索增强生成"
+"LLM Ops": "大模型运维"
+"Zero-trust": "零信任"
+"Compliance": "合规性"
+"Metadata": "元数据"
+"Catalog": "数据目录" # 修正术语，替代“数据黄页”
+"Lineage": "血缘关系"
+"Quality": "质量"
+"Security": "安全"
+"Privacy": "隐私"
+"利润流失": "损失" # 简化表达
+"数据黄页": "数据目录" # 强制覆盖
+"Data Steward": "数据管家"
+"Data Stewardship": "数据认责"
+"Data Owner": "数据主人"
+"Data Ownership": "数据权属"
+"Owner": "数据主人" # 自动映射文中简写的 Owner
+"Ownership": "数据权属"
+"Skills": "技能 (Skills)" # 不翻译或注明英文
+
+# --- Newly Added (2026-04-26) ---
+"OpenClaw": "OpenClaw" # 防止误修为 OpenClaude
+"Claw": "Claw"
+"claws": "claws"
+"claw-like": "claw-like"
+"Shyam": "Shyam"
+"Shyam Sankar": "Shyam Sankar"
+"Trae Stephens": "Trae Stephens"
+"Alex Karp": "Alex Karp"
+"Palantir": "Palantir"
+"Anduril": "Anduril"
+"John Wernfeldt": "John Wernfeldt"
+"Wernfeldt": "Wernfeldt"

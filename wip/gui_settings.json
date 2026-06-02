@@ -1,0 +1,19 @@
+{
+    "input": "https://open.substack.com/pub/metadataweekly/p/ontologies-context-graphs-and-semantic",
+    "mode": "both",
+    "llm_vendor": "Google Vertex AI",
+    "model": "gemini-3.1-pro-preview",
+    "text_style": "technical",
+    "cover_style": "Industrial Amber",
+    "pdf_template": "Federation",
+    "article_type": "trend",
+    "image_model": "gemini-3-pro-image-preview",
+    "localize_images": false,
+    "reuse_translation": false,
+    "gen_images": true,
+    "pdf_gen": true,
+    "wechat_sync_enabled": true,
+    "wechat_theme": "modern",
+    "wechat_author": "AI数据治理研究院",
+    "wechat_account_alias": "default"
+}

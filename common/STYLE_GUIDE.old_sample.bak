@@ -1,0 +1,41 @@
+# Universal Text Post-Processing Style Guide (Sample)
+
+These rules are applied to translated texts, subtitles, and articles across various workflows BEFORE finalizing.
+
+> **Note to Users**: This is a pure/sample version of the Style Guide. It contains only standard punctuation normalization and basic AI hallucination fixes (like "Cloud Code" -> "Claude Code"). 
+> To build your own AI vocabulary blacklist, compliance rules, or personalized styling, copy this file to `HARD_CONSTRAINTS.md` and add your custom regex rules.
+
+## 1. Terminology Replacement (Glossary)
+These specific strings will be replaced globally. Case-insensitive matching is preferred.
+
+| Original (Regex or String) | Replacement | Notes |
+| :--- | :--- | :--- |
+| Cloud to Claude | `(?i)\bCloud\b(?=\s*(Code\|AI\|3\|Sonnet\|Haiku\|Opus))` | `Claude` | Fix common whisper error "Cloud Code" -> "Claude Code" |
+| Cloud Family to Claude Family | `(?i)\bCloud\b(?=\s*(Family\|Model))` | `Claude` | "Cloud Family" -> "Claude Family" |
+| Fix Antrophic Typo | `(?i)Antrophic` | `Anthropic` | Fix typo |
+
+## 2. Text Cleanup (Regex)
+These regex patterns will be executed in order.
+
+| description | pattern | replacement |
+| :--- | :--- | :--- |
+| Remove Long Dashes | `—+` | `，` | Replace em-dashes with commas for cleaner reading |
+| Remove Leading Punctuation | `^[，。！？、,\.\?!]\s*` | `` | Remove punctuation at the start of a line |
+| Fix Period Comma | `([。．！？\.\?!])\s*[，,]` | `\1` | Fix comma occurring right after a sentence terminator |
+| Remove Ellipsis Start | `^\s*\.{2,}` | `` | Remove leading ellipsis "..." |
+| Remove Parentheses (En) | `\([^)]*\)` | `` | Remove content in standard brackets (comments) |
+| Remove Parentheses (Cn) | `（[^）]*）` | `` | Remove content in full-width brackets |
+| Remove Square Brackets | `\[[^\]]*\]` | `` | Remove [sound effects] etc. |
+| Fix Double Punctuation | `[，,]{2,}` | `，` | Fix accidental double commas |
+| Space after Comma | `，(?=[a-zA-Z0-9])` | `， ` | Add space after comma if followed by English/Number |
+| Exclamation Mark Normalization | `!` | `！` | Convert English exclamation to Chinese |
+| Question Mark Normalization | `\?` | `？` | Convert English question mark to Chinese |
+| Colon Normalization | `:` | `：` | Convert English colon to Chinese |
+| Semicolon Normalization | `;` | `；` | Convert English semicolon to Chinese |
+
+## 3. Custom Word Bans & Terminology
+Build your own list of words you want to systematically avoid in AI generation here.
+
+| Description | Pattern | Replacement |
+| :--- | :--- | :--- |
+| Example Ban | `This is an example` | `` |

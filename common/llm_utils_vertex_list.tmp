@@ -1,0 +1,23 @@
+        if provider == LLMProvider.VERTEX:
+            # Static curated list of Vertex AI managed models (2026 suite)
+            # Gemini 3.x / 2.5 series
+            gemini_models = [
+                "gemini-3.1-pro-preview",
+                "gemini-3-pro-preview",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite-preview",
+                "gemini-2.5-pro",
+            ]
+            # Image Generation models
+            image_models = [
+                "gemini-3.1-flash-image-preview",
+                "lyria-3-pro-preview",
+                "imagen-3-fast-preview",
+                "imagen-3-pro-preview",
+            ]
+            # Claude 4 series (Anthropic via Vertex Partner)
+            claude_models = [
+                "claude-opus-4-5",
+                "claude-sonnet-4-5",
+            ]
+            return gemini_models + image_models + claude_models

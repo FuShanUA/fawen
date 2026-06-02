@@ -1,0 +1,2 @@
+❌ OpenAI-compatible API error (minimax-m3): 402 Client Error: Payment Required for url: https://api.minimaxi.com/v1/chat/completions
+❌ OpenAI-compatible API error (glm-5-pro): 401 Client Error: Unauthorized for url: https://open.bigmodel.cn/api/paas/v4/chat/completions

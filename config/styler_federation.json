@@ -1,0 +1,48 @@
+{
+    "cover_cn_font": "SourceHanSansCN-Bold",
+    "cover_en_font": "SourceHanSansCN-Light",
+    "title": {
+        "align": "right",
+        "cn_size": 36,
+        "en_size": 26,
+        "color": [
+            0.0,
+            0.2,
+            0.4
+        ],
+        "color_name": "深蓝",
+        "cn_pos": [
+            294.63,
+            236.57,
+            540.39,
+            336.57
+        ],
+        "en_gap": 18.0
+    },
+    "publisher": {
+        "align": "right",
+        "size": 12,
+        "pos": [
+            180.0,
+            750.0,
+            570.0,
+            780.0
+        ]
+    },
+    "date": {
+        "align": "right",
+        "size": 12,
+        "pos": [
+            300.0,
+            782.0,
+            570.0,
+            812.0
+        ]
+    },
+    "inside": {
+        "font": "STKaiti",
+        "article_title_size": 24,
+        "chapter_title_size": 20,
+        "body_size": 18
+    }
+}

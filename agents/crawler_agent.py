@@ -560,13 +560,23 @@ def extract_from_url(url):
                 ["defuddle", "parse", url, "--md"],
                 capture_output=True,
                 text=True,
-                check=True,
-                shell=True
+                check=True
             )
             if result.returncode == 0 and result.stdout.strip():
                 return sniffed, result.stdout.strip()
         except Exception as defuddle_err:
-            print(f"Crawler Agent: Tier 2 failed: {defuddle_err}")
+            print(f"Crawler Agent: Tier 2 direct failed: {defuddle_err}. Trying NPX fallback...")
+            try:
+                result = subprocess.run(
+                    ["npx", "-y", "defuddle", "parse", url, "--md"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return sniffed, result.stdout.strip()
+            except Exception as npx_err:
+                print(f"Crawler Agent: Tier 2 NPX failed: {npx_err}")
 
         # TIER 3: Baoyu Bun Skill (Last Resort)
         # 第三顺位：仅当所有方案失效时使用。
@@ -733,16 +743,27 @@ def extract_from_url(url):
     else:
         print(f"Crawler Agent: Navigating to {url} using Defuddle...")
         try:
-            result = subprocess.run(
-                ["defuddle", "parse", url, "--md"],
-                capture_output=True,
-                text=True,
-                check=True,
-                shell=True
-            )
-            md_content = result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            error_msg = f"Error loading URL with Defuddle: {e}\n{e.stderr}"
+            try:
+                result = subprocess.run(
+                    ["defuddle", "parse", url, "--md"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                md_content = result.stdout.strip()
+            except Exception as e_direct:
+                print(f"Crawler Agent: Defuddle direct failed: {e_direct}. Trying NPX fallback...")
+                result = subprocess.run(
+                    ["npx", "-y", "defuddle", "parse", url, "--md"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                md_content = result.stdout.strip()
+        except Exception as e:
+            error_msg = f"Error loading URL with Defuddle: {e}"
+            if hasattr(e, 'stderr') and e.stderr:
+                error_msg += f"\n{e.stderr}"
             print(error_msg)
 
             print(f"Crawler Agent: Defuddle failed, attempting fallback to Playwright...")

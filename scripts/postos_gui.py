@@ -47,7 +47,7 @@ class PostOSGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("PostOS 2.0 - 智能化专家级出版工作流平台")
-        self.root.geometry("980x630")
+        self.root.geometry("980x500")
 
         # Set fonts
         self.ui_font = ("PingFang SC", 12) if sys.platform == "darwin" else ("Microsoft YaHei", 10)
@@ -69,7 +69,7 @@ class PostOSGUI:
             "Silicon Flow": "siliconflow",
             "Zhipu (GLM)": "zhipu",
             "Moonshot (Kimi)": "moonshot",
-            "Alibaba (Qwen)": "dashscope",
+            "Alibaba (Bailian)": "dashscope",
             "MiniMax": "minimax"
         }
 
@@ -82,13 +82,56 @@ class PostOSGUI:
             "Silicon Flow": "SILICONFLOW_API_KEY",
             "Zhipu (GLM)": "ZHIPUAI_API_KEY",
             "Moonshot (Kimi)": "MOONSHOT_API_KEY",
-            "Alibaba (Qwen)": "DASHSCOPE_API_KEY",
+            "Alibaba (Bailian)": "DASHSCOPE_API_KEY",
             "MiniMax": "MINIMAX_API_KEY"
+        }
+
+        # Image Gen Vendor Maps & Models
+        self.image_vendor_map = {
+            "Google AI Studio": "google",
+            "Google Vertex AI": "vertex",
+            "OpenAI": "openai",
+            "Azure OpenAI": "azure",
+            "OpenRouter": "openrouter",
+            "Alibaba (Bailian)": "dashscope",
+            "MiniMax": "minimax",
+            "火山引擎豆包": "seedream",
+            "Replicate": "replicate"
+        }
+        self.image_vendor_models = {
+            "Google AI Studio": ["gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-3.5-pro-image-preview", "gemini-3.5-flash-image-preview", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "imagen-3.0-generate-002"],
+            "Google Vertex AI": ["gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-3.5-pro-image-preview", "gemini-3.5-flash-image-preview", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "imagen-3", "imagen-3.0-generate-002"],
+            "OpenAI": ["dall-e-3"],
+            "Azure OpenAI": ["gpt-image-1.5", "image-prod"],
+            "OpenRouter": ["black-forest-labs/flux-1.1-pro", "black-forest-labs/flux.2-pro", "google/gemini-3-pro-image", "google/gemini-3.1-flash-image", "google/gemini-3.5-flash-image-preview", "google/gemini-3.1-flash-image-preview"],
+            "Alibaba (Bailian)": ["qwen-image-2.0-pro", "qwen-image-max"],
+            "MiniMax": ["image-01", "image-01-live"],
+            "火山引擎豆包": ["doubao-seedream-5-0-260128"],
+            "Replicate": ["black-forest-labs/flux-1.1-pro", "black-forest-labs/flux-dev", "black-forest-labs/flux-schnell", "tencent/hunyuan-image-3"]
         }
 
         # Load Settings
         self.settings_file = os.path.join(POSTFDRY_ROOT, "wip", "gui_settings.json")
         self.settings = self.load_settings()
+        self.vendor_default_models = self.settings.get("vendor_default_models", {})
+        self.image_vendor_default_models = self.settings.get("image_vendor_default_models", {})
+
+        # Image Vendor Env Keys Mapping
+        self.image_vendor_env_keys = {
+            "Google AI Studio": "GEMINI_API_KEY",
+            "Google Vertex AI": "VERTEX_SA_KEY_PATH",
+            "OpenAI": "OPENAI_API_KEY",
+            "Azure OpenAI": "AZURE_OPENAI_API_KEY",
+            "OpenRouter": "OPENROUTER_API_KEY",
+            "Alibaba (Bailian)": "DASHSCOPE_API_KEY",
+            "MiniMax": "MINIMAX_API_KEY",
+            "火山引擎豆包": "ARK_API_KEY",
+            "Replicate": "REPLICATE_API_KEY"
+        }
+
+        # Initialize dynamic key editor vars
+        self.key_editor_vendor = self.settings.get("llm_vendor", "Google Vertex AI")
+        self.key_editor_env_key = self.vendor_env_keys.get(self.key_editor_vendor, "GEMINI_API_KEY")
 
         self.setup_ui()
 
@@ -104,6 +147,8 @@ class PostOSGUI:
         
         # Initial async load of models
         self.root.after(500, lambda: self.on_vendor_change(None))
+        self.root.after(500, lambda: self.on_image_vendor_change(None))
+        self.root.after(600, lambda: self.update_key_editor(self.key_editor_vendor, self.key_editor_env_key))
 
     def set_macos_dock_icon(self):
         try:
@@ -173,6 +218,7 @@ class PostOSGUI:
             "cover_style": "Industrial Amber",
             "pdf_template": "Federation",
             "article_type": "trend",
+            "image_vendor": "Google Vertex AI",
             "image_model": "gemini-3-pro-image-preview",
             "localize_images": False,
             "reuse_translation": False,
@@ -181,7 +227,9 @@ class PostOSGUI:
             "wechat_sync_enabled": False,
             "wechat_theme": "modern",
             "wechat_author": "",
-            "wechat_account_alias": "default"
+            "wechat_account_alias": "default",
+            "vendor_default_models": {},
+            "image_vendor_default_models": {}
         }
         if os.path.exists(self.settings_file):
             try:
@@ -200,6 +248,7 @@ class PostOSGUI:
             "cover_style": self.cover_style_var.get(),
             "pdf_template": self.pdf_template_var.get(),
             "article_type": self.article_type_var.get(),
+            "image_vendor": self.image_vendor_var.get(),
             "image_model": self.image_model_var.get(),
             "localize_images": self.localize_images_var.get(),
             "reuse_translation": self.reuse_translation_var.get(),
@@ -208,7 +257,9 @@ class PostOSGUI:
             "wechat_sync_enabled": self.wechat_sync_enabled_var.get(),
             "wechat_theme": self.wechat_theme_var.get(),
             "wechat_author": self.wechat_author_var.get().strip(),
-            "wechat_account_alias": self.get_selected_wechat_alias()
+            "wechat_account_alias": self.get_selected_wechat_alias(),
+            "vendor_default_models": self.vendor_default_models,
+            "image_vendor_default_models": self.image_vendor_default_models
         }
         try:
             os.makedirs(os.path.dirname(self.settings_file), exist_ok=True)
@@ -221,6 +272,21 @@ class PostOSGUI:
         self.save_wechat_credentials(self.wechat_appid_var.get().strip(), self.wechat_secret_var.get().strip())
 
     def setup_ui(self):
+        # Configure fonts and style
+        self.header_font = ("PingFang SC", 11, "bold") if sys.platform == "darwin" else ("Microsoft YaHei", 9.5, "bold")
+        self.style = ttk.Style()
+        self.style.configure("TLabelframe.Label", font=self.header_font)
+
+        # --- BOTTOM CONTROLS ---
+        f_ctrl = ttk.Frame(self.root, padding=10)
+        f_ctrl.pack(fill="x", side="bottom")
+        
+        ttk.Button(f_ctrl, text="退出", command=self.on_exit).pack(side="left", padx=5)
+        self.stop_btn = ttk.Button(f_ctrl, text="中止", state="disabled", command=self.stop_process)
+        self.stop_btn.pack(side="right", padx=5)
+        self.start_btn = ttk.Button(f_ctrl, text="分析并配置流水线", command=self.handle_main_action)
+        self.start_btn.pack(side="right", padx=5)
+
         self.main_container = ttk.Frame(self.root, padding=4)
         self.main_container.pack(fill="both", expand=True)
 
@@ -231,14 +297,18 @@ class PostOSGUI:
         self.tab1 = ttk.Frame(self.notebook, padding=4)
         self.tab2 = ttk.Frame(self.notebook, padding=4)
         self.tab3 = ttk.Frame(self.notebook, padding=4)
+        self.tab4 = ttk.Frame(self.notebook, padding=4)
+        self.tab5 = ttk.Frame(self.notebook, padding=4)
 
-        self.notebook.add(self.tab1, text=" 任务配置 (Config) ")
-        self.notebook.add(self.tab2, text=" 元数据与标题 (Metadata) ")
-        self.notebook.add(self.tab3, text=" 执行日志 (Run Logs) ")
+        self.notebook.add(self.tab1, text=" 任务设置 ")
+        self.notebook.add(self.tab2, text=" 编辑确认 ")
+        self.notebook.add(self.tab3, text=" 日志查看 ")
+        self.notebook.add(self.tab4, text=" 模型配置 ")
+        self.notebook.add(self.tab5, text=" 公众号配置 ")
 
         # --- TAB 1: Configuration ---
         # 1. Input Row
-        f1 = ttk.LabelFrame(self.tab1, text=" 输入源与分析 (Input) ", padding=5)
+        f1 = ttk.LabelFrame(self.tab1, text=" 输入源与分析 ", padding=5)
         f1.pack(fill="x", pady=2)
         
         ttk.Label(f1, text="文章 URL/文件:").grid(row=0, column=0, sticky="w", pady=2)
@@ -250,12 +320,15 @@ class PostOSGUI:
         btn_browse = ttk.Button(f1, text="浏览...", command=self.browse_input)
         btn_browse.grid(row=0, column=2, padx=2)
 
+        btn_paste = ttk.Button(f1, text="粘贴", command=self.paste_from_clipboard)
+        btn_paste.grid(row=0, column=3, padx=2)
+
         # 2. Main Parameters Frame Container
         f_param = ttk.Frame(self.tab1, padding=2)
         f_param.pack(fill="x", pady=2)
 
         # 2.1 Global Config Group
-        f_global = ttk.LabelFrame(f_param, text=" 全局基本配置 (Global Config) ", padding=5)
+        f_global = ttk.LabelFrame(f_param, text=" 全局基本配置 ", padding=5)
         f_global.pack(fill="x", pady=2)
         
         ttk.Label(f_global, text="任务模式:").grid(row=0, column=0, sticky="w", pady=2)
@@ -264,79 +337,60 @@ class PostOSGUI:
         self.mode_combo.grid(row=0, column=1, sticky="w", padx=5)
         self.mode_combo.bind("<<ComboboxSelected>>", self.on_mode_change)
 
-        ttk.Label(f_global, text="模型厂商:").grid(row=0, column=2, sticky="w", padx=10)
-        self.vendor_var = tk.StringVar(value=self.settings.get("llm_vendor", "Google Vertex AI"))
-        vendors = list(self.vendor_map.keys())
-        self.vendor_combo = ttk.Combobox(f_global, textvariable=self.vendor_var, values=vendors, state="readonly", width=16)
-        self.vendor_combo.grid(row=0, column=3, sticky="w")
-        self.vendor_combo.bind("<<ComboboxSelected>>", self.on_vendor_change)
+        # Columns container (side-by-side)
+        f_cols = ttk.Frame(f_param)
+        f_cols.pack(fill="x", pady=2)
+        f_cols.columnconfigure(0, weight=1)
+        f_cols.columnconfigure(1, weight=1)
 
-        ttk.Label(f_global, text="选择模型:").grid(row=0, column=4, sticky="w", padx=10)
-        self.model_var = tk.StringVar(value=self.settings.get("model", "gemini-3-flash-preview"))
-        self.model_combo = ttk.Combobox(f_global, textvariable=self.model_var, width=22)
-        self.model_combo.grid(row=0, column=5, sticky="w")
-
-        # API Key Row
-        ttk.Label(f_global, text="API Key:").grid(row=1, column=0, sticky="w", pady=4)
-        self.api_key_var = tk.StringVar()
-        self.api_key_entry = ttk.Entry(f_global, textvariable=self.api_key_var, width=24, show="*")
-        self.api_key_entry.grid(row=1, column=1, columnspan=2, sticky="w", padx=5)
-
-        self.btn_save_key = ttk.Button(f_global, text="保存 Key", command=self.save_api_key)
-        self.btn_save_key.grid(row=1, column=3, sticky="w")
-
-        self.btn_test_conn = ttk.Button(f_global, text="测试连通性", command=self.test_connectivity)
-        self.btn_test_conn.grid(row=1, column=4, sticky="w", padx=10)
-
-        # 2.2 Translate Config Group
-        self.f_translate = ttk.LabelFrame(f_param, text=" 译介 (翻译) 服务专属参数 (Translate Settings) ", padding=5)
-        self.f_translate.pack(fill="x", pady=2)
+        # 2.2 Translate Config Group (Left Column)
+        self.f_translate = ttk.LabelFrame(f_cols, text=" 译介服务专属参数 ", padding=5)
+        self.f_translate.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
         ttk.Label(self.f_translate, text="写作风格:").grid(row=0, column=0, sticky="w", pady=2)
         self.text_style_var = tk.StringVar(value=self.settings.get("text_style", "formal"))
         self.text_style_combo = ttk.Combobox(self.f_translate, textvariable=self.text_style_var, values=["custom", "formal", "business", "storytelling", "technical", "elegant"], width=12, state="readonly")
         self.text_style_combo.grid(row=0, column=1, sticky="w", padx=5)
 
-        ttk.Label(self.f_translate, text="PDF 输出模板:").grid(row=0, column=2, sticky="w", padx=10)
+        ttk.Label(self.f_translate, text="PDF 模板:").grid(row=1, column=0, sticky="w", pady=2)
         self.pdf_template_var = tk.StringVar(value=self.settings.get("pdf_template", "Federation"))
-        self.pdf_template_combo = ttk.Combobox(self.f_translate, textvariable=self.pdf_template_var, values=["Federation", "Industrial Amber", "Corporate Blue", "Minimalist White"], width=16, state="readonly")
-        self.pdf_template_combo.grid(row=0, column=3, sticky="w")
-
-        self.localize_images_var = tk.BooleanVar(value=self.settings.get("localize_images", False))
-        self.chk_localize = ttk.Checkbutton(self.f_translate, text="图片英文文本汉化 (L10N)", variable=self.localize_images_var)
-        self.chk_localize.grid(row=1, column=0, columnspan=2, sticky="w", pady=2, padx=5)
-
-        self.reuse_translation_var = tk.BooleanVar(value=self.settings.get("reuse_translation", False))
+        self.pdf_template_combo = ttk.Combobox(self.f_translate, textvariable=self.pdf_template_var, values=["Federation", "Industrial Amber", "Corporate Blue", "Minimalist White"], width=12, state="readonly")
+        self.pdf_template_combo.grid(row=1, column=1, sticky="w", padx=5)
 
         self.pdf_gen_var = tk.BooleanVar(value=self.settings.get("pdf_gen", True))
         self.chk_pdf_gen = ttk.Checkbutton(self.f_translate, text="生成专业排版 PDF", variable=self.pdf_gen_var)
-        self.chk_pdf_gen.grid(row=1, column=4, sticky="w", pady=2, padx=5)
+        self.chk_pdf_gen.grid(row=2, column=0, columnspan=2, sticky="w", pady=2, padx=2)
 
-        # 2.3 Interpret Config Group
-        self.f_interpret = ttk.LabelFrame(f_param, text=" 解读 (公众号) 服务专属参数 (Interpret Settings) ", padding=5)
-        self.f_interpret.pack(fill="x", pady=2)
+        self.reuse_translation_var = tk.BooleanVar(value=self.settings.get("reuse_translation", False))
+
+        self.localize_images_var = tk.BooleanVar(value=self.settings.get("localize_images", False))
+        self.chk_localize = ttk.Checkbutton(self.f_translate, text="图片英文文本汉化", variable=self.localize_images_var)
+        self.chk_localize.grid(row=3, column=0, columnspan=2, sticky="w", pady=2, padx=2)
+
+        # 2.3 Interpret Config Group (Right Column)
+        self.f_interpret = ttk.LabelFrame(f_cols, text=" 解读服务专属参数 ", padding=5)
+        self.f_interpret.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
 
         ttk.Label(self.f_interpret, text="重构类型:").grid(row=0, column=0, sticky="w", pady=2)
         self.article_type_var = tk.StringVar(value=self.settings.get("article_type", "trend"))
         self.article_type_combo = ttk.Combobox(self.f_interpret, textvariable=self.article_type_var, values=["trend", "paper", "policy", "product", "standard"], width=12, state="readonly")
         self.article_type_combo.grid(row=0, column=1, sticky="w", padx=5)
 
-        ttk.Label(self.f_interpret, text="视觉风格 (DNA):").grid(row=0, column=2, sticky="w", padx=10)
+        ttk.Label(self.f_interpret, text="视觉 DNA:").grid(row=1, column=0, sticky="w", pady=2)
         self.cover_style_var = tk.StringVar(value=self.settings.get("cover_style", "Industrial Amber"))
-        self.cover_style_combo = ttk.Combobox(self.f_interpret, textvariable=self.cover_style_var, values=["Industrial Amber", "Corporate Blue", "Minimalist White", "Elegant Gold", "Federation"], width=16, state="readonly")
-        self.cover_style_combo.grid(row=0, column=3, sticky="w")
+        self.cover_style_combo = ttk.Combobox(self.f_interpret, textvariable=self.cover_style_var, values=["Industrial Amber", "Corporate Blue", "Minimalist White", "Elegant Gold", "Federation"], width=12, state="readonly")
+        self.cover_style_combo.grid(row=1, column=1, sticky="w", padx=5)
+        self.cover_style_combo.bind("<<ComboboxSelected>>", self.update_dna_color_preview)
 
-        ttk.Label(self.f_interpret, text="绘图引擎:").grid(row=0, column=4, sticky="w", padx=10)
-        self.image_model_var = tk.StringVar(value=self.settings.get("image_model", "gemini-3-pro-image-preview"))
-        self.image_model_combo = ttk.Combobox(self.f_interpret, textvariable=self.image_model_var, values=["gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "imagen-3"], width=22, state="readonly")
-        self.image_model_combo.grid(row=0, column=5, sticky="w")
+        self.dna_preview_canvas = tk.Canvas(self.f_interpret, width=16, height=16, highlightthickness=0)
+        self.dna_preview_canvas.grid(row=1, column=2, padx=2, sticky="w")
 
         self.gen_images_var = tk.BooleanVar(value=self.settings.get("gen_images", False))
-        self.chk_gen_images = ttk.Checkbutton(self.f_interpret, text="生成插图/封面 (Gen Images)", variable=self.gen_images_var)
-        self.chk_gen_images.grid(row=1, column=0, columnspan=2, sticky="w", pady=2, padx=5)
+        self.chk_gen_images = ttk.Checkbutton(self.f_interpret, text="生成插图/封面", variable=self.gen_images_var)
+        self.chk_gen_images.grid(row=2, column=0, columnspan=2, sticky="w", pady=2, padx=2)
 
-        # 2.4 WeChat Publication Config Group
-        self.f_wechat = ttk.LabelFrame(f_param, text=" 微信公众号同步配置 (WeChat Publish Settings) ", padding=5)
+        # --- TAB 5: WeChat Config ---
+        self.f_wechat = ttk.LabelFrame(self.tab5, text=" 微信公众号同步配置 ", padding=5)
         self.f_wechat.pack(fill="x", pady=2)
 
         ttk.Label(self.f_wechat, text="AppID:").grid(row=0, column=0, sticky="w", pady=2)
@@ -364,8 +418,63 @@ class PostOSGUI:
         self.wechat_author_entry.grid(row=2, column=1, sticky="w", padx=5)
 
         self.wechat_sync_enabled_var = tk.BooleanVar(value=self.settings.get("wechat_sync_enabled", False))
-        self.chk_wechat_sync = ttk.Checkbutton(self.f_wechat, text="同步至微信草稿箱 (Sync to WeChat)", variable=self.wechat_sync_enabled_var)
+        self.chk_wechat_sync = ttk.Checkbutton(self.f_wechat, text="同步至微信草稿箱", variable=self.wechat_sync_enabled_var)
         self.chk_wechat_sync.grid(row=2, column=2, columnspan=2, sticky="w", pady=2, padx=10)
+
+        # --- TAB 4: Model Configuration ---
+        # 1. Text LLM Config Group
+        f_llm = ttk.LabelFrame(self.tab4, text=" 文本大模型配置 ", padding=5)
+        f_llm.pack(fill="x", pady=2)
+
+        ttk.Label(f_llm, text="模型厂商:").grid(row=0, column=0, sticky="w", pady=2)
+        self.vendor_var = tk.StringVar(value=self.settings.get("llm_vendor", "Google Vertex AI"))
+        vendors = list(self.vendor_map.keys())
+        self.vendor_combo = ttk.Combobox(f_llm, textvariable=self.vendor_var, values=vendors, state="readonly", width=16)
+        self.vendor_combo.grid(row=0, column=1, sticky="w", padx=5)
+        self.vendor_combo.bind("<<ComboboxSelected>>", self.on_vendor_change)
+
+        ttk.Label(f_llm, text="选择模型:").grid(row=0, column=2, sticky="w", padx=10)
+        self.model_var = tk.StringVar(value=self.settings.get("model", "gemini-3-flash-preview"))
+        self.model_combo = ttk.Combobox(f_llm, textvariable=self.model_var, width=22)
+        self.model_combo.grid(row=0, column=3, sticky="w", padx=5)
+        self.btn_set_text_default = ttk.Button(f_llm, text="设为默认", command=self.set_text_model_default)
+        self.btn_set_text_default.grid(row=0, column=4, sticky="w", padx=5)
+
+        # 2. Image Gen Config Group
+        f_img = ttk.LabelFrame(self.tab4, text=" 绘图与设计模型配置 ", padding=5)
+        f_img.pack(fill="x", pady=2)
+
+        ttk.Label(f_img, text="生图厂商:").grid(row=0, column=0, sticky="w", pady=2)
+        self.image_vendor_var = tk.StringVar(value=self.settings.get("image_vendor", "Google Vertex AI"))
+        image_vendors = list(self.image_vendor_map.keys())
+        self.image_vendor_combo = ttk.Combobox(f_img, textvariable=self.image_vendor_var, values=image_vendors, width=16, state="readonly")
+        self.image_vendor_combo.grid(row=0, column=1, sticky="w", padx=5)
+        self.image_vendor_combo.bind("<<ComboboxSelected>>", self.on_image_vendor_change)
+
+        ttk.Label(f_img, text="生图模型:").grid(row=0, column=2, sticky="w", padx=10)
+        self.image_model_var = tk.StringVar(value=self.settings.get("image_model", "gemini-3-pro-image-preview"))
+        saved_vendor = self.settings.get("image_vendor", "Google Vertex AI")
+        initial_models = self.image_vendor_models.get(saved_vendor, ["gemini-3-pro-image-preview"])
+        self.image_model_combo = ttk.Combobox(f_img, textvariable=self.image_model_var, values=initial_models, width=22, state="readonly")
+        self.image_model_combo.grid(row=0, column=3, sticky="w", padx=5)
+        self.btn_set_image_default = ttk.Button(f_img, text="设为默认", command=self.set_image_model_default)
+        self.btn_set_image_default.grid(row=0, column=4, sticky="w", padx=5)
+
+        # 3. Key Editor Config Group
+        f_key = ttk.LabelFrame(self.tab4, text=" API 密钥与连通性测试 ", padding=5)
+        f_key.pack(fill="x", pady=2)
+
+        self.api_key_label = ttk.Label(f_key, text="API Key:")
+        self.api_key_label.grid(row=0, column=0, sticky="w", pady=4)
+        self.api_key_var = tk.StringVar()
+        self.api_key_entry = ttk.Entry(f_key, textvariable=self.api_key_var, width=32, show="*")
+        self.api_key_entry.grid(row=0, column=1, sticky="w", padx=5)
+
+        self.btn_save_key = ttk.Button(f_key, text="保存 Key", command=self.save_api_key)
+        self.btn_save_key.grid(row=0, column=2, sticky="w", padx=5)
+
+        self.btn_test_conn = ttk.Button(f_key, text="测试连通性", command=self.test_connectivity)
+        self.btn_test_conn.grid(row=0, column=3, sticky="w", padx=10)
 
         # Dynamic enables based on initial mode selection
         self.on_mode_change(None)
@@ -373,8 +482,11 @@ class PostOSGUI:
         # Load wechat credentials & accounts
         self.load_wechat_data()
 
+        # Initialize DNA preview color badge
+        self.update_dna_color_preview()
+
         # --- TAB 2: Metadata & Titles ---
-        f_meta = ttk.LabelFrame(self.tab2, text=" 文章元数据 (Metadata) ", padding=10)
+        f_meta = ttk.LabelFrame(self.tab2, text=" 文章元数据 ", padding=10)
         f_meta.pack(fill="x", pady=5)
 
         ttk.Label(f_meta, text="原文英文标题:").grid(row=0, column=0, sticky="w", pady=5)
@@ -395,29 +507,29 @@ class PostOSGUI:
         self.btn_regenerate_title = ttk.Button(f_meta, text="标题不够好", command=self.regenerate_titles)
         self.btn_regenerate_title.grid(row=1, column=2, rowspan=2, padx=15, sticky="ns")
 
-        ttk.Label(f_meta, text="文章作者 (Author):").grid(row=3, column=0, sticky="w", pady=5)
+        ttk.Label(f_meta, text="文章作者:").grid(row=3, column=0, sticky="w", pady=5)
         self.author_var = tk.StringVar()
         ttk.Entry(f_meta, textvariable=self.author_var, width=30).grid(row=3, column=1, sticky="w", padx=5, columnspan=2)
 
-        ttk.Label(f_meta, text="发布机构 (Source):").grid(row=4, column=0, sticky="w", pady=5)
+        ttk.Label(f_meta, text="发布机构:").grid(row=4, column=0, sticky="w", pady=5)
         self.source_var = tk.StringVar()
         ttk.Entry(f_meta, textvariable=self.source_var, width=30).grid(row=4, column=1, sticky="w", padx=5, columnspan=2)
 
-        ttk.Label(f_meta, text="发布时间 (Date):").grid(row=5, column=0, sticky="w", pady=5)
+        ttk.Label(f_meta, text="发布时间:").grid(row=5, column=0, sticky="w", pady=5)
         self.date_var = tk.StringVar()
         ttk.Entry(f_meta, textvariable=self.date_var, width=30).grid(row=5, column=1, sticky="w", padx=5, columnspan=2)
 
         # 沿用缓存翻译
-        self.chk_reuse_translation = ttk.Checkbutton(f_meta, text="沿用缓存翻译 (Reuse Translation)", variable=self.reuse_translation_var)
+        self.chk_reuse_translation = ttk.Checkbutton(f_meta, text="沿用缓存翻译", variable=self.reuse_translation_var)
         self.chk_reuse_translation.grid(row=6, column=1, sticky="w", pady=5, padx=5, columnspan=2)
 
-        f_thoughts = ttk.LabelFrame(self.tab2, text=" 译者/编辑核心导读洞察 (Editor Thoughts) ", padding=10)
+        f_thoughts = ttk.LabelFrame(self.tab2, text=" 译者/编辑核心导读洞察 ", padding=10)
         f_thoughts.pack(fill="both", expand=True, pady=5)
-        self.thoughts_text = tk.Text(f_thoughts, height=6, font=self.ui_font)
+        self.thoughts_text = tk.Text(f_thoughts, height=3, font=self.ui_font)
         self.thoughts_text.pack(fill="both", expand=True)
 
         # --- TAB 3: Execution Logs ---
-        f_log = ttk.LabelFrame(self.tab3, text=" 实态执行追踪 (Terminal Logs) ", padding=10)
+        f_log = ttk.LabelFrame(self.tab3, text=" 实态执行追踪 ", padding=10)
         f_log.pack(fill="both", expand=True, pady=5)
         
         self.progress_var = tk.DoubleVar(value=0)
@@ -431,22 +543,12 @@ class PostOSGUI:
         f_log_container = ttk.Frame(f_log)
         f_log_container.pack(fill="both", expand=True)
 
-        self.log_text = tk.Text(f_log_container, height=15, state="disabled", font=self.log_font, bg="#ffffff", padx=5, pady=5)
+        self.log_text = tk.Text(f_log_container, height=8, state="disabled", font=self.log_font, bg="#ffffff", padx=5, pady=5)
         scrollbar = ttk.Scrollbar(f_log_container, orient="vertical", command=self.log_text.yview)
         self.log_text.config(yscrollcommand=scrollbar.set)
 
         scrollbar.pack(side="right", fill="y")
         self.log_text.pack(side="left", fill="both", expand=True)
-
-        # --- BOTTOM CONTROLS ---
-        f_ctrl = ttk.Frame(self.root, padding=10)
-        f_ctrl.pack(fill="x", side="bottom")
-        
-        ttk.Button(f_ctrl, text="退出 (Exit)", command=self.on_exit).pack(side="left", padx=5)
-        self.stop_btn = ttk.Button(f_ctrl, text="中止 (Stop)", state="disabled", command=self.stop_process)
-        self.stop_btn.pack(side="right", padx=5)
-        self.start_btn = ttk.Button(f_ctrl, text="分析并配置流水线 (Analyze & Config)", command=self.handle_main_action)
-        self.start_btn.pack(side="right", padx=5)
 
     def on_input_changed(self, event):
         target = self.input_var.get().strip()
@@ -544,13 +646,19 @@ class PostOSGUI:
         if m == "translate":
             self.set_frame_state(self.f_translate, "normal")
             self.set_frame_state(self.f_interpret, "disabled")
+            self.image_vendor_combo.config(state="disabled")
+            self.image_model_combo.config(state="disabled")
         elif m == "interpret":
             self.set_frame_state(self.f_translate, "disabled")
             self.set_frame_state(self.f_interpret, "normal")
             self.pdf_gen_var.set(False)
+            self.image_vendor_combo.config(state="readonly")
+            self.image_model_combo.config(state="readonly")
         else: # both
             self.set_frame_state(self.f_translate, "normal")
             self.set_frame_state(self.f_interpret, "normal")
+            self.image_vendor_combo.config(state="readonly")
+            self.image_model_combo.config(state="readonly")
 
     def reset_merged_button(self):
         self.merged_button_state = "analyze"
@@ -1137,6 +1245,10 @@ class PostOSGUI:
         venv_python = "/Users/shanfu/cc/.venv/bin/python"
         dispatch_script = os.path.join(POSTFDRY_ROOT, "scripts", "postfdry-os.py")
 
+        img_vendor_id = self.image_vendor_map.get(self.image_vendor_var.get(), "vertex")
+        img_model_name = self.image_model_var.get()
+        image_model_arg = f"{img_vendor_id}:{img_model_name}"
+
         cmd = [
             venv_python, "-u", dispatch_script, target,
             "--non-interactive",
@@ -1145,7 +1257,7 @@ class PostOSGUI:
             "--text-style", self.text_style_var.get(),
             "--cover-style", self.cover_style_var.get(),
             "--type", self.article_type_var.get(),
-            "--image-model", self.image_model_var.get()
+            "--image-model", image_model_arg
         ]
 
         # Metadata overrides
@@ -1173,6 +1285,7 @@ class PostOSGUI:
         threading.Thread(target=self.run_worker_thread, args=(cmd,), daemon=True).start()
 
     def run_worker_thread(self, cmd):
+        has_balance_error = False
         try:
             env = os.environ.copy()
             env["PYTHONUNBUFFERED"] = "1"
@@ -1188,7 +1301,10 @@ class PostOSGUI:
             )
             if self.current_process.stdout:
                 for line in self.current_process.stdout:
-                    self.root.after(0, self.log, line.strip())
+                    line_str = line.strip()
+                    self.root.after(0, self.log, line_str)
+                    if any(kw in line_str.lower() for kw in ["insufficient balance", "insufficient_balance_error", "payment required", "402 client error", "status_code=1008"]):
+                        has_balance_error = True
             ret_code = self.current_process.wait()
             
             def handle_completion(r):
@@ -1220,7 +1336,10 @@ class PostOSGUI:
                     self.merged_button_state = "completed"
                     self.start_btn.config(text="完成，再来一篇")
                 else:
-                    self.status_label.config(text="❌ 执行失败")
+                    if has_balance_error:
+                        self.status_label.config(text="❌ 余额不足 (Payment Required)")
+                    else:
+                        self.status_label.config(text="❌ 执行失败")
             
             self.root.after(0, lambda: handle_completion(ret_code))
         except Exception as e:
@@ -1295,10 +1414,27 @@ class PostOSGUI:
             self.stop_process()
         self.root.destroy()
 
+    def on_image_vendor_change(self, event):
+        v_name = self.image_vendor_var.get()
+        models = self.image_vendor_models.get(v_name, ["gemini-3-pro-image-preview"])
+        self.image_model_combo.config(values=models)
+        
+        # Check default model linkage
+        default_model = self.image_vendor_default_models.get(v_name)
+        if default_model and default_model in models:
+            self.image_model_var.set(default_model)
+        elif self.image_model_var.get() not in models:
+            self.image_model_var.set(models[0])
+            
+        env_key = self.image_vendor_env_keys.get(v_name)
+        if env_key:
+            self.update_key_editor(v_name, env_key)
+
     def on_vendor_change(self, event):
         v_name = self.vendor_var.get()
         threading.Thread(target=self.fetch_models_async, args=(v_name,), daemon=True).start()
-        self.update_api_key_ui()
+        env_key = self.vendor_env_keys.get(v_name, "GEMINI_API_KEY")
+        self.update_key_editor(v_name, env_key)
 
     def fetch_models_async(self, v_name):
         try:
@@ -1314,8 +1450,12 @@ class PostOSGUI:
             models = client.list_models_by_provider(provider)
             if models:
                 self.root.after(0, lambda: self.model_combo.config(values=models))
-                # If current model isn't in the new list, pick the first one
-                if self.model_var.get() not in models:
+                
+                # Check default model linkage
+                default_model = self.vendor_default_models.get(v_name)
+                if default_model and default_model in models:
+                    self.root.after(0, lambda: self.model_var.set(default_model))
+                elif self.model_var.get() not in models:
                     self.root.after(0, lambda: self.model_var.set(models[0]))
             else:
                 self.root.after(0, lambda: self.model_combo.config(values=["未发现可用模型"]))
@@ -1539,8 +1679,9 @@ class PostOSGUI:
         # Dynamically locate the project root .env file (two levels up from Library/Tools/postfdry/)
         return os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", ".env"))
 
-    def load_api_key(self, vendor):
-        env_key = self.vendor_env_keys.get(vendor)
+    def load_api_key(self, vendor, env_key=None):
+        if not env_key:
+            env_key = self.vendor_env_keys.get(vendor)
         if not env_key:
             return ""
 
@@ -1552,7 +1693,7 @@ class PostOSGUI:
                     content = f.read()
                 match = re.search(rf'^{env_key}=(.*)', content, re.M)
                 if match:
-                    val = match.group(1).strip()
+                    val = match.group(1).strip().strip("'").strip('"')
                     if val: return val
             except:
                 pass
@@ -1565,7 +1706,7 @@ class PostOSGUI:
                     content = f.read()
                 match = re.search(rf'^{env_key}=(.*)', content, re.M)
                 if match:
-                    val = match.group(1).strip()
+                    val = match.group(1).strip().strip("'").strip('"')
                     if val: return val
             except:
                 pass
@@ -1574,17 +1715,22 @@ class PostOSGUI:
         return os.environ.get(env_key, "")
 
     def update_api_key_ui(self):
-        vendor = self.vendor_var.get()
-        key_val = self.load_api_key(vendor)
+        key_val = self.load_api_key(self.key_editor_vendor, self.key_editor_env_key)
         if key_val:
             # Display as asterisks to indicate existence
             self.api_key_var.set("*" * 16)
         else:
             self.api_key_var.set("")
 
+    def update_key_editor(self, vendor_name, env_key):
+        self.key_editor_vendor = vendor_name
+        self.key_editor_env_key = env_key
+        self.api_key_label.config(text=f"API Key ({vendor_name}):")
+        self.update_api_key_ui()
+
     def save_api_key(self):
-        vendor = self.vendor_var.get()
-        env_key = self.vendor_env_keys.get(vendor)
+        vendor = self.key_editor_vendor
+        env_key = self.key_editor_env_key
         if not env_key:
             messagebox.showerror("错误", f"未找到厂商 {vendor} 对应的环境变量配置")
             return
@@ -1619,7 +1765,7 @@ class PostOSGUI:
             os.makedirs(os.path.dirname(env_path), exist_ok=True)
             with open(env_path, 'w', encoding='utf-8') as f:
                 f.write(new_content.strip() + '\n')
-            
+
             # Sync to os.environ so the running process can pick it up immediately
             os.environ[env_key] = new_val
 
@@ -1628,6 +1774,26 @@ class PostOSGUI:
             self.api_key_var.set("*" * 16)
         except Exception as e:
             messagebox.showerror("错误", f"保存 API Key 失败: {e}")
+
+    def set_text_model_default(self):
+        vendor = self.vendor_var.get()
+        model = self.model_var.get()
+        if not model or model in ["正在获取...", "正在获取模型列表...", "未发现可用模型", "无模型", "错误", "获取失败"]:
+            messagebox.showerror("错误", "请先选择一个有效的模型")
+            return
+        self.vendor_default_models[vendor] = model
+        self.save_settings()
+        messagebox.showinfo("成功", f"已将 {model} 设为 {vendor} 的默认模型")
+
+    def set_image_model_default(self):
+        vendor = self.image_vendor_var.get()
+        model = self.image_model_var.get()
+        if not model:
+            messagebox.showerror("错误", "请先选择一个有效的生图模型")
+            return
+        self.image_vendor_default_models[vendor] = model
+        self.save_settings()
+        messagebox.showinfo("成功", f"已将 {model} 设为 {vendor} 的默认生图模型")
 
     def test_connectivity(self):
         vendor = self.vendor_var.get()
@@ -1663,13 +1829,40 @@ class PostOSGUI:
                 self.root.after(0, lambda: self.status_label.config(text="✅ 连通性测试成功"))
                 self.log(f"✅ [Test] 与 {vendor} ({model}) 连通性测试成功！响应内容: {response.strip()}")
             else:
-                self.root.after(0, lambda: messagebox.showerror("测试失败", f"连通性测试失败！\n错误原因: {response}"))
-                self.root.after(0, lambda: self.status_label.config(text="❌ 连通性测试失败"))
+                is_balance = any(kw in response.lower() for kw in ["insufficient balance", "insufficient_balance_error", "payment required", "402 client error", "status_code=1008"])
+                if is_balance:
+                    self.root.after(0, lambda: messagebox.showerror("测试失败", f"连通性测试失败！\n错误原因: 账号余额不足 (Payment Required/Insufficient Balance)\n详细错误: {response}"))
+                    self.root.after(0, lambda: self.status_label.config(text="❌ 余额不足"))
+                else:
+                    self.root.after(0, lambda: messagebox.showerror("测试失败", f"连通性测试失败！\n错误原因: {response}"))
+                    self.root.after(0, lambda: self.status_label.config(text="❌ 连通性测试失败"))
                 self.log(f"❌ [Test] 与 {vendor} ({model}) 连通性测试失败: {response}")
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("错误", f"连通性测试执行异常: {e}"))
             self.root.after(0, lambda: self.status_label.config(text="❌ 测试异常"))
             self.log(f"❌ [Test] 连通性测试执行异常: {e}")
+
+    def paste_from_clipboard(self):
+        try:
+            clipboard = self.root.clipboard_get()
+            if clipboard:
+                self.input_var.set(clipboard.strip())
+                self.on_input_changed(None)
+        except Exception:
+            pass
+
+    def update_dna_color_preview(self, event=None):
+        dna = self.cover_style_var.get()
+        colors = {
+            "Industrial Amber": "#FFB900",
+            "Corporate Blue": "#0078D4",
+            "Minimalist White": "#E1E1E1",
+            "Elegant Gold": "#C19A6B",
+            "Federation": "#2B3B4C"
+        }
+        color = colors.get(dna, "#CCCCCC")
+        self.dna_preview_canvas.delete("all")
+        self.dna_preview_canvas.create_oval(2, 2, 14, 14, fill=color, outline="#888888", width=1)
 
 if __name__ == "__main__":
     root = tk.Tk()

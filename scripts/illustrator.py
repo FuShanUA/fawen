@@ -308,11 +308,15 @@ def main():
             norm_script = os.path.normpath(script_path)
             norm_target = os.path.normpath(target_path)
             norm_prompt_file = os.path.normpath(prompt_file_path)
-
-            # Enforce Vertex provider for all models as agreed
-            provider = "vertex"
-            target_model = args.image_model if args.image_model != "vertex" else None
-
+            # Support provider:model format from args.image_model
+            image_model_raw = args.image_model or "vertex"
+            if ":" in image_model_raw:
+                parts = image_model_raw.split(":", 1)
+                provider = parts[0]
+                target_model = parts[1]
+            else:
+                provider = "vertex"
+                target_model = image_model_raw if image_model_raw != "vertex" else None
             # Use --promptfiles instead of --prompt to avoid character escaping issues
             if bun_path:
                 cmd = [bun_path, norm_script]

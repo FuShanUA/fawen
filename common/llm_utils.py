@@ -291,12 +291,18 @@ class LLMClient:
         self.limiter.wait()
         try:
             response = requests.post(f"{base_url}/chat/completions", headers=headers, json=data, timeout=300)
-            response.raise_for_status()
+            if response.status_code != 200:
+                try:
+                    err_data = response.json()
+                    err_msg = err_data.get("error", {}).get("message") or err_data.get("message") or response.text
+                except Exception:
+                    err_msg = response.text
+                raise Exception(f"API Error (Status {response.status_code}): {err_msg}")
             res_json = response.json()
             return res_json['choices'][0]['message']['content'].strip()
         except Exception as e:
             print(f"❌ OpenAI-compatible API error ({model_name}): {e}")
-            return None
+            raise e
 
     def _call_gemini(self, model_name: str, content: Union[str, List], api_key: str) -> Optional[str]:
         if not api_key:
@@ -585,7 +591,7 @@ class LLMClient:
             LLMProvider.OPENAI: ["gpt-5.5", "gpt-5", "gpt-4.5", "gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "o1-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
             LLMProvider.MOONSHOT: ["kimi-k2.6", "kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
             LLMProvider.DASHSCOPE: ["deepseek-v4-pro", "qwen-max", "qwen-plus", "qwen-turbo", "qwen2.5-72b-instruct"],
-            LLMProvider.ZHIPU: ["glm-5-pro", "glm-5-flash", "glm-4-plus", "glm-4-air", "glm-4-0520"],
+            LLMProvider.ZHIPU: ["glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5", "glm-4-plus", "glm-4-flash", "glm-4-air"],
             LLMProvider.DEEPSEEK: ["deepseek-chat", "deepseek-reasoner"],
             LLMProvider.SILICONFLOW: [
                 "deepseek-ai/DeepSeek-V4-Pro",
@@ -656,21 +662,43 @@ class LLMClient:
             brand = brand_map.get(provider, "")
 
             def sort_key(name):
-                if name in defaults:
-                    return (0, defaults.index(name))
                 name_low = name.lower()
-                # For Moonshot, rank both "kimi" and "moonshot" at the top
-                if provider == LLMProvider.MOONSHOT:
-                    if name_low.startswith("kimi") or name_low.startswith("moonshot"):
-                        return (1, 0, name_low)
-                    if "kimi" in name_low or "moonshot" in name_low:
-                        return (1, 1, name_low)
-                else:
-                    if brand and name_low.startswith(brand):
-                        return (1, 0, name_low)
-                    if brand and brand in name_low:
-                        return (1, 1, name_low)
-                return (2, 0, name_low)
+                if name in defaults:
+                    return (0, defaults.index(name), name_low)
+                
+                is_primary_brand = False
+                if brand and (name_low.startswith(brand) or brand in name_low):
+                    is_primary_brand = True
+                elif provider == LLMProvider.MOONSHOT and ("kimi" in name_low or "moonshot" in name_low):
+                    is_primary_brand = True
+                
+                brand_group = 1 if is_primary_brand else 2
+                
+                # Dynamic version parsing
+                versions = re.findall(r'\b\d+(?:\.\d+)?\b', name_low)
+                if not versions:
+                    versions = re.findall(r'\d+(?:\.\d+)?', name_low)
+                
+                version_val = (0, 0)
+                if versions:
+                    try:
+                        parts = [float(x) for x in versions]
+                        v1 = parts[0]
+                        v2 = parts[1] if len(parts) > 1 else 0.0
+                        version_val = (v1, v2)
+                    except ValueError:
+                        pass
+                
+                # Tier priority: Premium/Flagship -> Standard -> Lite/Speed/Flash
+                tier = 1
+                premium_kws = ["pro", "plus", "max", "ultra", "reasoner", "o1", "o3"]
+                lite_kws = ["mini", "lite", "flash", "micro", "nano", "speed", "turbo"]
+                if any(x in name_low for x in premium_kws):
+                    tier = 0
+                elif any(x in name_low for x in lite_kws):
+                    tier = 2
+                
+                return (brand_group, -version_val[0], -version_val[1], tier, len(name_low), name_low)
 
             models.sort(key=sort_key)
             return models
@@ -683,7 +711,7 @@ class LLMClient:
             LLMProvider.OPENAI: ["gpt-5.5", "gpt-5", "gpt-4.5", "gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "o1-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
             LLMProvider.MOONSHOT: ["kimi-k2.6", "kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
             LLMProvider.DASHSCOPE: ["deepseek-v4-pro", "qwen-max", "qwen-plus", "qwen-turbo", "qwen2.5-72b-instruct"],
-            LLMProvider.ZHIPU: ["glm-5-pro", "glm-5-flash", "glm-4-plus", "glm-4-air", "glm-4-0520"],
+            LLMProvider.ZHIPU: ["glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5", "glm-4-plus", "glm-4-flash", "glm-4-air"],
             LLMProvider.DEEPSEEK: ["deepseek-chat", "deepseek-reasoner"],
             LLMProvider.SILICONFLOW: [
                 "deepseek-ai/DeepSeek-V4-Pro",
@@ -729,12 +757,43 @@ class LLMClient:
                         seen.add(exp_model)
                         models.append(exp_model)
 
-                # Prioritize curated defaults
+                # Merge with curated defaults to ensure primary models are always available
                 defaults = curated_defaults.get(LLMProvider.GEMINI, [])
+                for d in defaults:
+                    if d not in seen:
+                        seen.add(d)
+                        models.append(d)
+
                 def gemini_sort_key(name):
+                    name_low = name.lower()
                     if name in defaults:
-                        return (0, defaults.index(name))
-                    return (1, name.lower())
+                        return (0, defaults.index(name), name_low)
+                    
+                    # Dynamic version parsing
+                    versions = re.findall(r'\b\d+(?:\.\d+)?\b', name_low)
+                    if not versions:
+                        versions = re.findall(r'\d+(?:\.\d+)?', name_low)
+                    
+                    version_val = (0, 0)
+                    if versions:
+                        try:
+                            parts = [float(x) for x in versions]
+                            v1 = parts[0]
+                            v2 = parts[1] if len(parts) > 1 else 0.0
+                            version_val = (v1, v2)
+                        except ValueError:
+                            pass
+                    
+                    # Tier priority: Premium/Flagship -> Standard -> Lite/Speed/Flash
+                    tier = 1
+                    premium_kws = ["pro", "plus", "max", "ultra", "reasoner", "o1", "o3"]
+                    lite_kws = ["mini", "lite", "flash", "micro", "nano", "speed", "turbo"]
+                    if any(x in name_low for x in premium_kws):
+                        tier = 0
+                    elif any(x in name_low for x in lite_kws):
+                        tier = 2
+                    
+                    return (1, -version_val[0], -version_val[1], tier, len(name_low), name_low)
                 models.sort(key=gemini_sort_key)
                 return models
             except Exception as e:
@@ -745,6 +804,8 @@ class LLMClient:
             # Static curated list of Vertex AI managed models (2026 suite)
             # Gemini 3.x / 2.5 series
             gemini_models = [
+                "gemini-3.5-pro",
+                "gemini-3.5-flash",
                 "gemini-3.1-pro-preview",
                 "gemini-3-pro-preview",
                 "gemini-3.1-flash-preview",

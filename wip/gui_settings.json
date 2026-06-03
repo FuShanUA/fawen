@@ -1,13 +1,14 @@
 {
-    "input": "https://open.substack.com/pub/metadataweekly/p/ontologies-context-graphs-and-semantic",
+    "input": "https://open.substack.com/pub/peterbaumann/p/extend-your-ai-literacy-in-2026",
     "mode": "both",
-    "llm_vendor": "Google Vertex AI",
-    "model": "gemini-3.1-pro-preview",
-    "text_style": "technical",
+    "llm_vendor": "Alibaba (Bailian)",
+    "model": "deepseek-v4-pro",
+    "text_style": "business",
     "cover_style": "Industrial Amber",
     "pdf_template": "Federation",
     "article_type": "trend",
-    "image_model": "gemini-3-pro-image-preview",
+    "image_vendor": "Alibaba (Bailian)",
+    "image_model": "qwen-image-2.0-pro",
     "localize_images": false,
     "reuse_translation": false,
     "gen_images": true,
@@ -15,5 +16,7 @@
     "wechat_sync_enabled": true,
     "wechat_theme": "modern",
     "wechat_author": "AI数据治理研究院",
-    "wechat_account_alias": "default"
+    "wechat_account_alias": "default",
+    "vendor_default_models": {},
+    "image_vendor_default_models": {}
 }

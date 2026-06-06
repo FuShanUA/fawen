@@ -1328,8 +1328,14 @@ class PostOSGUI:
                 self.thoughts_text.insert(tk.END, rec.get('thoughts', ''))
                 
                 # Styles
-                self.text_style_var.set(rec.get('text_style', 'formal'))
-                self.article_type_var.set(rec.get('article_type', 'trend'))
+                rec_style = rec.get('text_style', 'formal')
+                self.text_style_var.set(self.text_style_rev_map.get(rec_style, rec_style))
+                
+                rec_type = rec.get('article_type', 'trend')
+                self.article_type_var.set(self.article_type_rev_map.get(rec_type, rec_type))
+                
+                rec_cover = rec.get('cover_style', 'Industrial Amber')
+                self.cover_style_var.set(self.visual_style_rev_map.get(rec_cover, rec_cover))
                 
                 self.on_mode_change(None)
                 

@@ -516,13 +516,27 @@ def extract_from_url(url):
                 author = tweet.get("author", {}).get("name", author)
 
                 # Check for Article (Long Note)
+                article_source_tweet = None
                 if "article" in tweet and "content" in tweet.get("article", {}):
-                    print("Crawler Agent: Detected X Article (Long Note). Parsing Tier 1 blocks...")
-                    article = tweet["article"]
+                    article_source_tweet = tweet
+                elif "quote" in tweet and "article" in tweet["quote"] and "content" in tweet["quote"]["article"]:
+                    print("Crawler Agent: Detected X Article in Quoted Tweet.")
+                    article_source_tweet = tweet["quote"]
+
+                if article_source_tweet:
+                    print("Crawler Agent: Parsing X Article...")
+                    article = article_source_tweet["article"]
+                    article_author = article_source_tweet.get("author", {}).get("name", author)
                     title = article.get("title", title)
                     cover_img = article.get("cover_media", {}).get("media_info", {}).get("original_img_url")
 
                     md_blocks = []
+                    # Prepend quote text if this is a quote tweet
+                    if article_source_tweet != tweet:
+                        lead_in_text = tweet.get("text", "").strip()
+                        if lead_in_text:
+                            md_blocks.append(f"> **{author}**: {lead_in_text}\n\n---\n")
+
                     if cover_img:
                         md_blocks.append(f"![Cover]({cover_img})")
 
@@ -595,15 +609,15 @@ def extract_from_url(url):
                     # If this is an article but Tier 1 found ZERO embedded images despite blocks existence,
                     # it's likely a complex structure (e.g. nested lists) -> Fallback to Tier 3.
                     if not has_embedded_images and len(blocks) > 10:
-                         print("Crawler Agent: Tier 1 Article extraction seems incomplete (no images). Falling back...")
-                         raise Exception("Tier 1 Incomplete")
+                         print("Crawler Agent: Note: Tier 1 Article has no embedded images, proceeding with text-only content.")
+                         # raise Exception("Tier 1 Incomplete")
 
                     md_result = "\n\n".join(md_blocks)
                     print("Crawler Agent: Tier 1 (Internal API) success.")
                     return {
                         "title": title,
                         "publish_date": extracted_date or today,
-                        "author": author,
+                        "author": article_author,
                         "source": "X",
                         "url": url
                     }, md_result
@@ -615,8 +629,22 @@ def extract_from_url(url):
                         for photo in tweet["media"]["photos"]:
                             md_result += f"![Image]({photo['url']})\n\n"
                     print("Crawler Agent: Tier 1 (Internal API) success (Standard Tweet).")
+
+                    # Improve Standard Tweet Title
+                    cleaned_text = re.sub(r'https?://\S+', '', text)
+                    cleaned_text = re.sub(r'@\w+', '', cleaned_text)
+                    cleaned_text = cleaned_text.strip().replace('\n', ' ')
+                    tweet_title = f"Tweet by {author}"
+                    if cleaned_text:
+                        sentences = re.split(r'[.!?。！？]', cleaned_text)
+                        first_sentence = sentences[0].strip() if sentences else cleaned_text
+                        if len(first_sentence) > 10:
+                            tweet_title = first_sentence[:80] + "..." if len(first_sentence) > 80 else first_sentence
+                        else:
+                            tweet_title = cleaned_text[:80] + "..." if len(cleaned_text) > 80 else cleaned_text
+
                     return {
-                        "title": f"Tweet by {author}",
+                        "title": tweet_title,
                         "publish_date": extracted_date or today,
                         "author": author,
                         "source": "X",
@@ -665,8 +693,21 @@ def extract_from_url(url):
                 pass
 
         # TIER 3: Baoyu Bun Skill (Last Resort) - Standalone version
-        from common_utils import resolve_tool_path
-        bun_skill_base = resolve_tool_path("baoyu-danger-x-to-markdown")
+        try:
+            from common_utils import resolve_tool_path
+            bun_skill_base = resolve_tool_path("baoyu-danger-x-to-markdown")
+        except ImportError:
+            potential_paths = [
+                os.path.join(POSTFDRY_ROOT, "baoyu-skills", "skills", "baoyu-danger-x-to-markdown"),
+                os.path.join(POSTFDRY_ROOT, "..", "common", "baoyu-skills", "skills", "baoyu-danger-x-to-markdown"),
+                os.path.join(os.path.dirname(POSTFDRY_ROOT), ".baoyu-skills", "baoyu-danger-x-to-markdown"),
+                os.path.join(os.path.dirname(POSTFDRY_ROOT), "baoyu-skills", "baoyu-danger-x-to-markdown")
+            ]
+            bun_skill_base = None
+            for p in potential_paths:
+                if os.path.exists(p):
+                    bun_skill_base = p
+                    break
         bun_skill_path = os.path.join(bun_skill_base, "scripts", "main.ts") if bun_skill_base else None
 
         if bun_skill_path and os.path.exists(bun_skill_path):

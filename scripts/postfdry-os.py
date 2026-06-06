@@ -304,8 +304,11 @@ class ProjectManager:
         is_html = self.input_path.lower().endswith('.html') or self.input_path.lower().endswith('.htm')
         is_pdf = self.input_path.lower().endswith('.pdf')
         if self.input_path.startswith(('http://', 'https://')) or is_html or is_pdf:
-            print(f"🚀 正在抓取并利用 AI 优化原文内容...")
-            crawler_agent.run(self.input_path, output_file=source_file, model_name=model_name)
+            if os.path.exists(source_file) and os.path.getsize(source_file) > 100:
+                print(f"ℹ️  [Smart Check] 源文件已存在且非空，跳过重新抓取以保留修改后的元数据。")
+            else:
+                print(f"🚀 正在抓取并利用 AI 优化原文内容...")
+                crawler_agent.run(self.input_path, output_file=source_file, model_name=model_name)
         else:
             if os.path.abspath(self.input_path) != os.path.abspath(source_file):
                 print(f"📂 正在同步本地文件到项目目录...")
@@ -316,7 +319,7 @@ class ProjectManager:
                         sf_content = f.read()
                     from common_utils import MetadataEngine
                     meta_eng = MetadataEngine(sf_content)
-                    clean_body = meta_eng.clean_body(sf_content)
+                    clean_body = meta_eng.clean_body(sf_content, keep_cover=True)
                     new_yaml = dict(meta_eng.raw_meta)
                     new_yaml["original_path"] = os.path.abspath(self.input_path)
                     import yaml
@@ -347,9 +350,10 @@ class ProjectManager:
         return None
 
 class OnboardingAssistant:
-    def __init__(self, source_file, model_name="gemini-3-flash-preview"):
+    def __init__(self, source_file, model_name="gemini-3-flash-preview", narrative_theme=None):
         self.source_file = source_file
         self.model_name = model_name
+        self.narrative_theme = narrative_theme
 
     def get_recommendation(self):
         """Asks Gemini to analyze the article and recommend mode/style."""
@@ -360,8 +364,15 @@ class OnboardingAssistant:
         from llm_utils import get_client
         client = get_client()
 
+        theme = self.narrative_theme if self.narrative_theme is not None else ""
+        if not theme or theme == "无特定主题":
+            narrative_section = "本次解读没有特定的业务主题限制，请总编辑完全根据文章本身的内容、技术痛点和行业价值进行解读推荐。"
+        else:
+            narrative_section = f"本次解读的宏观叙事主题背景是：【{theme}】。"
+
         prompt = f"""
 你是一名资深的【出版总编】。请分析以下文章内容，并给出出版建议。
+{narrative_section}
 
 文章内容：
 {content}
@@ -373,7 +384,7 @@ class OnboardingAssistant:
   "text_style": "formal", "business", "storytelling", "technical", "elegant" 之一,
   "cover_style": "Industrial Amber",
   "article_type": "trend", "paper", "policy", "product", "standard" 之一,
-  "thoughts": "给译者/改写者的核心导向建议（30字以内）",
+  "thoughts": "结合上述宏观叙事主题背景和本文章的核心要义，为修改者拟定推荐的解读思路/编辑思路/导读引导观点（30字以内）",
   "justification": "出版建议理由或特色剖析（20字以内）"
 }}
 """
@@ -444,7 +455,7 @@ def metadata_onboarding(source_file, recommendation=None):
             source = input(" 请输入发布机构: ").strip() or source
 
     # Rebuild YAML and update source file
-    clean_body = meta_eng.clean_body(content)
+    clean_body = meta_eng.clean_body(content, keep_cover=True)
     new_yaml = {
         'title': chn_title or eng_title,
         'eng_title': eng_title,
@@ -542,7 +553,7 @@ def pre_flight_check(input_file, recommendation=None, current_model="gemini-3-fl
 
     for i, v in enumerate(visual_presets, 1):
         label = f" [{i}] {v}"
-        if v == "Federation": label = f" [{i}] Federation (联合会制图风)"
+        if v == "Federation": label = f" [{i}] Federation (研究院制图风)"
         if i == 1: label += " (默认)"
         print(label)
 
@@ -556,14 +567,14 @@ def pre_flight_check(input_file, recommendation=None, current_model="gemini-3-fl
     # 3.5 PDF Template
     if pdf_gen:
         print("\n --- ❹ PDF 输出模板 (PDF Template) ---")
-        pdf_templates = ["Federation", "Industrial Amber", "Corporate Blue", "Minimalist White"]
+        pdf_templates = ["Federation"]
         for i, t in enumerate(pdf_templates, 1):
             label = f" [{i}] {t}"
-            if t == "Federation": label += " (联合会标准模板 ✨)"
+            if t == "Federation": label += " (研究院标准模板 ✨)"
             if i == 1: label += " (默认)"
             print(label)
 
-        pdf_choice = input("\n 请选择 PDF 模板 [1-4, 默认 1]: ").strip() or "1"
+        pdf_choice = input("\n 请选择 PDF 模板 [1-1, 默认 1]: ").strip() or "1"
         try:
             pdf_template = pdf_templates[int(pdf_choice)-1]
         except:
@@ -635,11 +646,28 @@ def pre_flight_check(input_file, recommendation=None, current_model="gemini-3-fl
         user_cat_title = input(f" > (回车沿用建议, 或输入新标题): ").strip()
         if user_cat_title: cat_title = user_cat_title
 
-    # 10. Visual Localization Toggle
-    print(f"\n --- ❿ 视觉内容汉化 (Visual Localization) ---")
-    print(" [功能：自动翻译图片内的英文文本，保持排版一致]")
-    loc_choice = input(" 是否执行图片/信息图汉化? [y/N, 默认 N]: ").strip().lower()
-    localize_images = True if loc_choice == 'y' else False
+    # 11. Summary Generation Mode
+    summary_mode = "preset"
+    summary_prompt = ""
+    if mode in ["interpret", "both"]:
+        print(f"\n --- ⓫ 总结模式 (Summary Mode) ---")
+        print(" [1] 按预设总结 (默认)")
+        print(" [2] 根据文章上下文自动总结")
+        print(" [3] 无总结")
+        summary_choice = input("\n 请选择总结模式 [1-3, 默认 1]: ").strip() or "1"
+        if summary_choice == "2":
+            summary_mode = "auto"
+        elif summary_choice == "3":
+            summary_mode = "none"
+        else:
+            summary_mode = "preset"
+
+        if summary_mode == "preset":
+            print("\n  预设总结指令:")
+            default_prompt = "不要进行机械的“板块化”总结。如果需要为最后一部分设置标题，【绝对不要】以“终局思考”、“实战思考”、“写在最后”或“实战视角的思考”这类虚空套话命名，而是应该使用：“总结：[具体的核心提炼]”的句式（例如，若是关于混合云，则可以使用“总结：混合云下的技术收敛”；若是关于平台采购，则使用“总结：回归系统合规与稳定性”）。请直接陈述实战层面的观点，结尾严禁出现强行升华。"
+            print(f"  {default_prompt}")
+            user_prompt = input("\n  请输入自定义总结指令 (直接回车沿用预设): ").strip()
+            summary_prompt = user_prompt if user_prompt else default_prompt
 
     # Final Confirmation Summary
     clear_screen()
@@ -658,6 +686,8 @@ def pre_flight_check(input_file, recommendation=None, current_model="gemini-3-fl
         print(f" 🏗️  重构架构: {article_type}")
         print(f" 📌 解读标题: {cat_title}")
         print(f" 🎨 生图引擎: {image_model}")
+        mode_desc = {"preset": "按预设总结", "auto": "自动总结", "none": "无总结"}.get(summary_mode, summary_mode)
+        print(f" 📝 总结模式: {mode_desc}")
     if pdf_gen:
         print(f" 📄 PDF 模板: {pdf_template}")
     print(f" 🖼️  图片汉化: {'开启 ✅' if localize_images else '关闭 ❌'}")
@@ -670,7 +700,7 @@ def pre_flight_check(input_file, recommendation=None, current_model="gemini-3-fl
 
     # Final Return
     final_model = current_model
-    return mode, text_style, cover_style, info_style, pdf_template, article_type, thoughts, gen_images, pdf_gen, final_model, image_model, std_title, cat_title, localize_images, reuse_translation
+    return mode, text_style, cover_style, info_style, pdf_template, article_type, thoughts, gen_images, pdf_gen, final_model, image_model, std_title, cat_title, localize_images, reuse_translation, summary_mode, summary_prompt
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Postfdry-OS: Professional Publishing Dispatcher")
@@ -689,9 +719,14 @@ if __name__ == "__main__":
     parser.add_argument("--model", help="LLM model override")
     parser.add_argument("--non-interactive", action="store_true", help="Skip all interactive prompts")
     parser.add_argument("--reuse-translation", action="store_true", help="Reuse existing translation in wip/")
+    parser.add_argument("--skip-summary", action="store_true", help="Skip generating summary ending")
+    parser.add_argument("--summary-mode", default="explicit", choices=["explicit", "implicit", "none", "preset", "auto"], help="Summary generation mode")
+    parser.add_argument("--summary-prompt", default="", help="Prompt for preset summary mode")
+    parser.add_argument("--narrative-theme", default="", help="Narrative/business theme keywords")
     parser.add_argument("--image-model", help="Image generation model/engine override")
     parser.add_argument("--target-title", help="Forced target title override")
     parser.add_argument("--catchy-title", help="Forced catchy title override for interpretation")
+    parser.add_argument("--author", default="", help="Author signature override")
     parser.add_argument("--internal-run", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
@@ -779,6 +814,18 @@ if __name__ == "__main__":
         cat_title = history.get('catchy_title', '')
         localize_images = history.get('localize_images', False)
         reuse_translation = True # For history runs, always reuse by default
+        summary_mode = history.get('summary_mode')
+        if not summary_mode:
+            summary_mode = "explicit" if history.get('gen_summary', True) else "none"
+        if summary_mode == "preset":
+            summary_mode = "explicit"
+        elif summary_mode == "auto":
+            summary_mode = "implicit"
+        summary_prompt = history.get('summary_prompt', '')
+        narrative_theme = history.get('narrative_theme', "")
+        if narrative_theme == "无特定主题":
+            narrative_theme = ""
+        author = args.author or history.get('author') or ""
     elif args.non_interactive:
         # Always materialize in non-interactive cold start
         materialized_source = pm.materialize_source(model_name=selected_model)
@@ -799,6 +846,18 @@ if __name__ == "__main__":
         localize_images = args.localize_images
         force_relocalize = args.force_relocalize
         reuse_translation = args.reuse_translation
+        summary_mode = args.summary_mode
+        if summary_mode == "preset":
+            summary_mode = "explicit"
+        elif summary_mode == "auto":
+            summary_mode = "implicit"
+        if args.skip_summary:
+            summary_mode = "none"
+        summary_prompt = args.summary_prompt
+        narrative_theme = args.narrative_theme
+        if narrative_theme == "无特定主题":
+            narrative_theme = ""
+        author = args.author or ""
 
         # Rename project directory based on target title if available
         target_title = std_title or cat_title
@@ -818,21 +877,25 @@ if __name__ == "__main__":
     else:
         # Full Onboarding Flow (Cold Start)
         materialized_source = pm.materialize_source(model_name=selected_model)
+        narrative_theme = args.narrative_theme
+        if narrative_theme == "无特定主题":
+            narrative_theme = ""
 
         # 3. AI Onboarding (Recommendations)
-        assistant = OnboardingAssistant(materialized_source, model_name=selected_model)
+        assistant = OnboardingAssistant(materialized_source, model_name=selected_model, narrative_theme=args.narrative_theme)
         recommendation = assistant.get_recommendation()
 
         # 4. Interactive Metadata Onboarding
         metadata_onboarding(materialized_source, recommendation=recommendation)
 
         # 5. Full Configuration Phase
-        mode, text_style, cover_style, info_style, pdf_template, article_type, thoughts, gen_images, pdf_gen, final_model, image_model, std_title, cat_title, localize_images, reuse_translation = pre_flight_check(materialized_source, recommendation, current_model=selected_model)
+        mode, text_style, cover_style, info_style, pdf_template, article_type, thoughts, gen_images, pdf_gen, final_model, image_model, std_title, cat_title, localize_images, reuse_translation, summary_mode, summary_prompt = pre_flight_check(materialized_source, recommendation, current_model=selected_model)
 
         target_title = std_title or cat_title
         if target_title:
             project_root, source_file = pm.rename_project_if_needed(target_title)
             materialized_source = source_file
+        author = args.author or (history.get('author') if history else "") or ""
 
     # 2.9 Signal: Visual Localization Decision
     force_relocalize = args.force_relocalize
@@ -864,6 +927,11 @@ if __name__ == "__main__":
         'localize_images': localize_images,
         'pdf_gen': pdf_gen,
         'llm_model': final_model,
+        'summary_mode': summary_mode,
+        'summary_prompt': summary_prompt,
+        'gen_summary': summary_mode != "none",
+        'author': author,
+        'narrative_theme': narrative_theme,
         'last_run': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
@@ -908,6 +976,13 @@ if __name__ == "__main__":
             ]
             if localize_images: cmd.append("--localize-images")
             if args.non_interactive: cmd.append("--non-interactive")
+            cmd.extend(["--summary-mode", summary_mode])
+            if summary_mode in ["explicit", "implicit"] and summary_prompt:
+                cmd.extend(["--summary-prompt", summary_prompt])
+            if narrative_theme is not None:
+                cmd.extend(["--narrative-theme", narrative_theme])
+            if author:
+                cmd.extend(["--author", author])
             if gen_images:
                 cmd.append("--gen-images")
                 cmd.extend(["--image-model", image_model])

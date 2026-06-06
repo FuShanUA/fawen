@@ -544,3 +544,109 @@ def generate_standard_filename(meta, mode="译介"):
 
     filename = f"{date_clean}_{author_source}_{title_clean}.{mode}"
     return filename
+
+def resolve_tool_path(tool_name, default_hardcoded=None):
+    """
+    Resolves the absolute path of a tool/skill across branch environments.
+    Supports sibling tools, baoyu-skills, standalone packaging, and master-branch fallbacks.
+    """
+    # 1. Check current branch's local baoyu-skills
+    # ROOT_DIR is os.path.dirname(POSTOS_DIR) -> e.g. /Users/shanfu/cc-feature/Library/Tools
+    baoyu_path = os.path.join(ROOT_DIR, "baoyu-skills", "skills", tool_name)
+    if os.path.exists(baoyu_path) and os.listdir(baoyu_path):
+        return baoyu_path
+
+    # 2. Check current branch's sibling tools
+    sibling_path = os.path.join(ROOT_DIR, tool_name)
+    if os.path.exists(sibling_path):
+        return sibling_path
+
+    # 3. Check standalone lib packaging (e.g. POSTOS_DIR/lib/tool_name)
+    local_lib = os.path.join(POSTOS_DIR, "lib", tool_name)
+    if os.path.exists(local_lib):
+        return local_lib
+
+    # 4. Fallback to master branch (cc) baoyu-skills (extremely useful if feature branch submodule isn't populated)
+    master_baoyu = os.path.join("/Users/shanfu/cc/Library/Tools", "baoyu-skills", "skills", tool_name)
+    if os.path.exists(master_baoyu) and os.listdir(master_baoyu):
+        return master_baoyu
+
+    # 5. Fallback to master branch (cc) sibling tools
+    master_sibling = os.path.join("/Users/shanfu/cc/Library/Tools", tool_name)
+    if os.path.exists(master_sibling):
+        return master_sibling
+
+    # 6. Check environment variables
+    skills_dir = os.environ.get("BAOYU_SKILLS_DIR")
+    if skills_dir:
+        env_skill_path = os.path.join(skills_dir, tool_name)
+        if os.path.exists(env_skill_path):
+            return env_skill_path
+
+    env_var = f"{tool_name.upper().replace('-', '_')}_DIR"
+    env_val = os.environ.get(env_var)
+    if env_val and os.path.exists(env_val):
+        return env_val
+
+    return default_hardcoded
+
+def load_narrative_logics():
+    """Loads the narrative logics from config/narrative_logics.yml."""
+    import yaml
+    path = os.path.join(CONFIG_DIR, "narrative_logics.yml")
+    
+    # Default fallback logics matching original ones
+    default_logics = {
+        "trend": {
+            "name": "行业趋势分析 (Trend)",
+            "tone": "前瞻、大白话、不讲虚头巴脑的宏大叙事",
+            "focus": "趋势带来的实际影响、钱/风险在哪里、该做什么",
+            "lead_in_guide": "重点突出该趋势对行业核心痛点的影响与前瞻价值，引导读者关注未来的变革方向。",
+            "summary_guide": "提炼趋势演进的关键路径，并针对未来布局给出具体的行动建议。"
+        },
+        "paper": {
+            "name": "论文深度解读 (Paper)",
+            "tone": "干练、务实、直击痛点",
+            "focus": "核心事实、实施难点、落地建议",
+            "lead_in_guide": "言简意赅地指出该研究所解决的本质学术/技术难题及对业界的实用价值。",
+            "summary_guide": "总结该研究在实际落地时的核心限制与突破点，提供面向工程实操的具体建议。"
+        },
+        "policy": {
+            "name": "政策战略解读 (Policy)",
+            "tone": "稳重、批判性、实战视角",
+            "focus": "合规成本、执行边界、实操建议",
+            "lead_in_guide": "分析该政策出台的宏观背景，揭示对企事业单位的合规红线与潜在机遇。",
+            "summary_guide": "梳理应对合规要求的执行策略，并对可能碰触的执行边界给予清晰提示。"
+        },
+        "product": {
+            "name": "产品/技术剖析 (Product)",
+            "tone": "硬核、场景化、去PPT味",
+            "focus": "解决了什么具体麻烦、架构如何支撑业务、不吹牛",
+            "lead_in_guide": "直奔技术或产品解决的具体痛点与架构亮点，不堆砌虚幻的技术名词。",
+            "summary_guide": "从架构演进与落地效果出发，为类似产品的选型或自研设计提供参考建议。"
+        },
+        "standard": {
+            "name": "规范与标准解读 (Standard)",
+            "tone": "实用、一读就懂、执行手册感",
+            "focus": "落地步骤、避坑指南、资源投入",
+            "lead_in_guide": "说明该标准所规范的业务范围，并点出贯标对于企业资质或业务能力的实际提升作用。",
+            "summary_guide": "提炼符合该标准的落地建设关键步骤，为贯标审计或执行提供明确的避坑指南。"
+        }
+    }
+    
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                logics = yaml.safe_load(f)
+                if isinstance(logics, dict) and logics:
+                    # Merge defaults for any missing keys in custom configurations
+                    for k, v in logics.items():
+                        if isinstance(v, dict):
+                            for dk, dv in default_logics.get(k, {}).items():
+                                if dk not in v:
+                                    v[dk] = dv
+                    return logics
+        except Exception as e:
+            print(f"⚠️ Failed to load narrative_logics.yml: {e}")
+            
+    return default_logics

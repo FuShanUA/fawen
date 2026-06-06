@@ -22,8 +22,13 @@ from datetime import datetime
 
 # Correct path for agents and scripts
 POSTFDRY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(os.path.join(POSTFDRY_ROOT, "agents"))
-sys.path.append(os.path.join(POSTFDRY_ROOT, "scripts"))
+agents_dir = os.path.join(POSTFDRY_ROOT, "agents")
+scripts_dir = os.path.join(POSTFDRY_ROOT, "scripts")
+
+for d in [scripts_dir, agents_dir]:
+    if d in sys.path:
+        sys.path.remove(d)
+    sys.path.insert(0, d)
 
 from common_utils import extract_clean_body, deterministic_scrub
 import translator_agent
@@ -37,15 +42,15 @@ from common_utils import deterministic_scrub, load_style_guide, extract_clean_bo
 
 # Refined CSS Patch
 CSS_PATCH = """<style>
-    h1, .h1 { display: block !important; font-size: 2.2em; font-weight: 800; color: #1a1a1a; margin-bottom: 0.5em; border-left: 8px solid #FFBF00; padding-left: 15px; line-height: 1.2; }
-    blockquote { border-left: 4px solid #FFBF00 !important; }
+    h1, .h1 { display: block !important; font-size: 2.2em; font-weight: 800; color: #1a1a1a; margin-bottom: 0.5em; line-height: 1.2; }
+    blockquote { border-left: 4px solid #ddd !important; }
     .original-chart { margin: 2.5em auto; text-align: center; max-width: 95%; }
     .original-chart img { max-width: 100%; height: auto; border-radius: 12px; border: 1px solid #eee; }
     .chart-caption { font-size: 0.85em; color: #888; margin-top: 12px; font-weight: 500; letter-spacing: 0.5px; }
 </style>"""
 
 # Add agents to path (Hardened absolute path)
-POSTFDRY_ROOT = r"/Users/shanfu/cc/Library/Tools/postfdry"
+POSTFDRY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 agents_dir = os.path.join(POSTFDRY_ROOT, "agents")
 if agents_dir not in sys.path:
     sys.path.insert(0, agents_dir)
@@ -68,11 +73,27 @@ import translator_agent
 import rewriter_agent
 import lead_in_agent
 
-def run_interpret_workflow(input_file, project_root=None, text_style="formal", cover_style="Industrial Amber", info_style="Industrial Amber", type_selection="trend", unslop_domain="中国政企特色数据治理", thoughts="", gen_images=False, model_name="gemini-3-flash-preview", image_model="vertex", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False):
+def run_interpret_workflow(input_file, project_root=None, text_style="formal", cover_style="Industrial Amber", info_style="Industrial Amber", type_selection="trend", unslop_domain="中国政企特色数据治理", thoughts="", gen_images=False, model_name="gemini-3-flash-preview", image_model="vertex", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author=""):
+    if generate_summary is not None:
+        summary_mode = "explicit" if generate_summary else "none"
+    if summary_mode == "preset":
+        summary_mode = "explicit"
+    elif summary_mode == "auto":
+        summary_mode = "implicit"
     # Ensure project root is used for outputs
     project_root = project_root or os.path.dirname(input_file)
     output_dir = os.path.join(project_root, "output")
     wip_dir = os.path.join(project_root, "wip")
+
+    import json
+    config_path = os.path.join(wip_dir, "project_config.json")
+    project_config = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                project_config = json.load(f)
+        except Exception as e:
+            print(f"⚠️ Failed to load project config: {e}")
     assets_dir = os.path.join(project_root, "assets")
     for d in [output_dir, wip_dir, assets_dir]:
         if not os.path.exists(d): os.makedirs(d)
@@ -124,6 +145,25 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
         shutil.copy2(translated_file, wip_translated)
     translated_file = wip_translated
 
+    # Load original metadata to get author/date (early resolution so it can be passed to rewriter and lead-in agents)
+    from common_utils import MetadataEngine
+    trans_meta = None
+    trans_content = ""
+    if os.path.exists(translated_file):
+        try:
+            with open(translated_file, 'r', encoding='utf-8') as f:
+                trans_content = f.read()
+            trans_meta = MetadataEngine(trans_content)
+        except Exception as e:
+            print(f"⚠️ Failed to load trans_meta: {e}")
+
+    # Determine default author (always "数据治理研究院" as signature, no "前沿科技智库" creation)
+    default_author = "数据治理研究院"
+
+    # Resolve final author: parameter 'author' -> config 'author' -> trans_meta 'author' -> default_author
+    author = author or project_config.get('author') or (trans_meta.get('author') if trans_meta else "") or default_author
+    date = datetime.now().strftime('%Y-%m-%d')
+
     # 2. Atomic Rewriting
     project_slug = os.path.basename(project_root)
     dest_file = os.path.join(output_dir, f"{project_slug}.解读.md")
@@ -163,7 +203,7 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
         # CLEANUP: Strip all translation headers/covers before rewrite
         # 2. Atomic Rewriting (Deep Interpretation)
-        print(f"  STEP 2: Atomic Rewriting (Deep Interpretation) [Type: {type_selection}]...")
+        print(f"  [Skill] Atomic Rewriting (Deep Interpretation) [Type: {type_selection}]...")
         rewritten_file = rewriter_agent.run(
             translated_file,
             project_root=project_root,
@@ -171,7 +211,12 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
             unslop_domain=unslop_domain,
             thoughts=thoughts,
             target_title=target_title,
-            model_name=model_name
+            model_name=model_name,
+            summary_mode=summary_mode,
+            summary_prompt=summary_prompt,
+            generate_summary=generate_summary,
+            narrative_theme=narrative_theme,
+            author=author
         )
 
         # Move to output/
@@ -200,13 +245,10 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
     if not lead_in_md:
         print(f"  STEP 3: Synthesizing Lead-in (Lead-in Agent)...")
-        lead_in_md = lead_in_agent.generate_lead_in(rewritten_text, thoughts, project_root=project_root, model_name=model_name)
+        lead_in_md = lead_in_agent.generate_lead_in(rewritten_text, thoughts, project_root=project_root, model_name=model_name, type_selection=type_selection, narrative_theme=narrative_theme, author=author)
 
     # 4. Packaging Layout (NEW: Title at top, NO YAML in body, Default Author)
     print(f"  STEP 4: Packaging article with NEW layout (H1 + Author)...")
-
-    author = "AI数据治理研究院" # Enforced default
-    date = datetime.now().strftime('%Y-%m-%d')
 
     # 1. First check if rewriter output has any heading as title
     title = "无标题"
@@ -277,14 +319,19 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
     # Load original metadata to generate standard filename YYYYMMDD_Author，Source_ChineseTitle.解读
     from common_utils import generate_standard_filename, get_versioned_path, MetadataEngine
-    with open(translated_file, 'r', encoding='utf-8') as f:
-        trans_content = f.read()
-    trans_meta = MetadataEngine(trans_content)
+    # Re-parse if not already done, though it should be
+    if 'trans_meta' not in locals() or trans_meta is None:
+        try:
+            with open(translated_file, 'r', encoding='utf-8') as f:
+                trans_content = f.read()
+            trans_meta = MetadataEngine(trans_content)
+        except:
+            trans_meta = None
 
     meta_for_name = {
-        'date': trans_meta.get('date') or trans_meta.get('publish_date'),
-        'author': trans_meta.get('author'),
-        'source': trans_meta.get('source'),
+        'date': project_config.get('date') or (trans_meta.get('date') or trans_meta.get('publish_date') if trans_meta else None),
+        'author': project_config.get('author') or (trans_meta.get('author') if trans_meta else None),
+        'source': project_config.get('source') or (trans_meta.get('source') if trans_meta else None),
         'title': title
     }
     standard_name = generate_standard_filename(meta_for_name, mode="解读")
@@ -349,11 +396,17 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
         nonlocal img_counter
         content = match.group(0)
         if "COVER_METAPHOR" in content:
-            return f"![Cover]({asset_rel_path}/cover.png)"
+            if os.path.exists(os.path.join(assets_dir, "cover.png")):
+                return f"![Cover]({asset_rel_path}/cover.png)"
+            return ""
         else:
-            tag = f"![Infographic {img_counter}]({asset_rel_path}/infographic_{img_counter}.png)"
+            filename = f"infographic_{img_counter}.png"
+            if os.path.exists(os.path.join(assets_dir, filename)):
+                tag = f"![Infographic {img_counter}]({asset_rel_path}/{filename})"
+                img_counter += 1
+                return tag
             img_counter += 1
-            return tag
+            return ""
 
     # Updated regex for 4-field markers and optional AI-generated trailing bracket junk
     final_content = re.sub(r'\[AI_GEN_IMG:.*?\](?:\s*[,，]?\s*\[\s*[^\]]+?\]+\s*)?', marker_replacer, final_content)
@@ -387,18 +440,29 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
             final_content = final_content.replace(old_path, new_path)
             print(f"    ✨ 已替换汉化图: {orig_img} -> {loc_img}")
 
-    # 7.3 Convert Markdown Images to HTML for professional rendering
+    # 7.3 Convert Markdown Images to HTML for professional rendering with robustness check
     def img_replacer(match):
         alt = match.group(1).strip()
         path = match.group(2)
         # Robustly check if it's an asset path
         normalized_path = path.replace('\\', '/')
 
-        # Style BOTH original, localized images and generated infographics
-        if "assets/original" in normalized_path or "assets/localized" in normalized_path or "assets/infographic" in normalized_path:
-            # Skip redundant captions
+        # Style ALL project assets (cover, infographics, original/localized source images)
+        if "assets/" in normalized_path:
+            # [CRITICAL] Final safety check: if the image doesn't exist on disk, comment it out
+            # Path might be relative (../assets/...) or absolute (file:///...)
+            # We try to resolve it relative to the project root
+            clean_rel_path = re.sub(r'^.*?assets/', 'assets/', normalized_path)
+            abs_path = os.path.join(project_root, clean_rel_path)
+
+            if not os.path.exists(abs_path):
+                print(f"  [WARN] Image asset missing on disk: {clean_rel_path}. Commenting out to prevent broken link.")
+                return f"<!-- Asset Missing: {clean_rel_path} -->"
+
+            # Skip redundant captions for decorative/structural images
             caption_html = ""
-            if alt.lower() not in ["image", "img", "chart", "[image]", "图片", "图表", "cover"] and not alt.startswith("Infographic"):
+            is_generic = alt.lower() in ["image", "img", "chart", "[image]", "图片", "图表", "cover"]
+            if not is_generic and not alt.startswith("Infographic") and not alt.startswith("Cover"):
                 caption_html = f'\n  <p class="chart-caption">{alt}</p>'
 
             # Ensure src uses forward slashes
@@ -521,6 +585,11 @@ if __name__ == "__main__":
     parser.add_argument("--no-spawn", action="store_true", help="Suppress new PowerShell window spawning")
     parser.add_argument("--reuse-translation", action="store_true", help="Automatically reuse existing translation in wip/ without asking")
     parser.add_argument("--non-interactive", action="store_true", help="Non-interactive mode")
+    parser.add_argument("--skip-summary", action="store_true", help="Skip generating summary ending")
+    parser.add_argument("--summary-mode", default="explicit", choices=["explicit", "implicit", "none", "preset", "auto"], help="Summary generation mode")
+    parser.add_argument("--summary-prompt", default="", help="Prompt for preset summary mode")
+    parser.add_argument("--narrative-theme", default="", help="Narrative/business theme keywords")
+    parser.add_argument("--author", default="", help="Author signature override")
     parser.add_argument("--internal-run", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
@@ -544,6 +613,10 @@ if __name__ == "__main__":
         subprocess.Popen(spawn_cmd)
         sys.exit(0)
 
+    sum_mode = args.summary_mode
+    if args.skip_summary:
+        sum_mode = "none"
+
     run_interpret_workflow(
         args.input,
         project_root=args.project_root,
@@ -560,7 +633,11 @@ if __name__ == "__main__":
         reuse_translation=args.reuse_translation,
         localize_images=args.localize_images,
         force_relocalize=args.force_relocalize,
-        non_interactive=args.non_interactive
+        non_interactive=args.non_interactive,
+        summary_mode=sum_mode,
+        summary_prompt=args.summary_prompt,
+        narrative_theme=args.narrative_theme,
+        author=args.author
     )
 
     # FINAL CLEANUP: Remove .bak files from project output

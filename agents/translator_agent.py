@@ -21,7 +21,7 @@ if common_dir not in sys.path:
 
 from llm_utils import get_client
 # Add agents to path (Hardened absolute path)
-POSTFDRY_ROOT = r"/Users/shanfu/cc/Library/Tools/postfdry"
+POSTFDRY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 agents_dir = os.path.join(POSTFDRY_ROOT, "agents")
 if agents_dir not in sys.path:
     sys.path.insert(0, agents_dir)
@@ -168,6 +168,42 @@ Text to translate: {s}"""
         return res
     return s
 
+def python_chunk_markdown(input_file, output_dir, max_words=800):
+    """
+    Python-native markdown chunker.
+    Splits the markdown file content into chunks of roughly max_words.
+    Tries to split at paragraphs.
+    """
+    with open(input_file, 'r', encoding='utf-8') as f:
+        text = f.read()
+
+    chunks_dir = os.path.join(output_dir, "chunks")
+    os.makedirs(chunks_dir, exist_ok=True)
+
+    paragraphs = text.split('\n\n')
+    chunks = []
+    current_chunk = []
+    current_words = 0
+
+    for para in paragraphs:
+        # Simple word count approximation (by splitting on whitespace)
+        word_count = len(para.split())
+        if current_words + word_count > max_words and current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+            current_chunk = [para]
+            current_words = word_count
+        else:
+            current_chunk.append(para)
+            current_words += word_count
+
+    if current_chunk:
+        chunks.append('\n\n'.join(current_chunk))
+
+    for idx, chunk in enumerate(chunks):
+        chunk_file = os.path.join(chunks_dir, f"chunk-{idx+1}.md")
+        with open(chunk_file, 'w', encoding='utf-8') as f:
+            f.write(chunk)
+
 def run_atomic_translation(input_file, style="formal", unslop_domain="B2B", project_root=None, model_name="gemini-3-flash-preview"):
     """Coordinates chunking and parallel translation of the input file."""
     with open(input_file, 'r', encoding='utf-8') as f:
@@ -226,7 +262,7 @@ def run_atomic_translation(input_file, style="formal", unslop_domain="B2B", proj
             print(f"  [Skill] Translated date: {translated_date}")
 
         header = meta_eng.to_yaml()
-        body = meta_eng.clean_body(source_text)
+        body = meta_eng.clean_body(source_text, keep_cover=True)
         print(f"  [Skill] Metadata found and isolated ({len(meta_eng.raw_meta)} keys).")
     else:
         header = ""
@@ -245,9 +281,39 @@ def run_atomic_translation(input_file, style="formal", unslop_domain="B2B", proj
         if os.path.exists(out_dir):
             shutil.rmtree(out_dir, ignore_errors=True)
 
-        script_path = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-translate/scripts/main.ts"
-        cmd_str = f'npx -y bun "{script_path}" chunk "{temp_body_file}" --max-words 800 --output-dir "{out_dir}"'
-        subprocess.run(cmd_str, shell=True, check=True)
+        # Try to resolve baoyu-translate path using common_utils
+        try:
+            from common_utils import resolve_tool_path
+            translate_skill_base = resolve_tool_path("baoyu-translate")
+        except Exception as e:
+            print(f"  [Warning] Failed to import resolve_tool_path: {e}")
+            translate_skill_base = None
+
+        script_path = None
+        if translate_skill_base:
+            script_path = os.path.join(translate_skill_base, "scripts", "main.ts")
+
+        success = False
+        if script_path and os.path.exists(script_path):
+            try:
+                cmd_str = f'npx -y bun "{script_path}" chunk "{temp_body_file}" --max-words 800 --output-dir "{out_dir}"'
+                print(f"  [Skill] Running atomic chunking via Bun: {os.path.basename(input_file)}...")
+                subprocess.run(cmd_str, shell=True, check=True, capture_output=True, text=True)
+                success = True
+            except subprocess.CalledProcessError as e:
+                print(f"  [WARN] Bun chunking failed. Error: {e.stderr[:200] if e.stderr else str(e)}")
+                print("  [WARN] Falling back to Python-native chunker...")
+            except Exception as e:
+                print(f"  [WARN] Unexpected error during Bun execution: {e}")
+                print("  [WARN] Falling back to Python-native chunker...")
+        else:
+            print(f"  [WARN] Could not find baoyu-translate skill main.ts. Checked: {script_path}")
+            print("  [WARN] Falling back to Python-native chunker...")
+
+        if not success:
+            # Python-native fallback (Zero-Dep)
+            print(f"  [Skill] Running Python-native chunker for: {os.path.basename(input_file)}...")
+            python_chunk_markdown(temp_body_file, out_dir, max_words=800)
 
         chunks_dir = os.path.join(out_dir, "chunks")
         # Natural Sort to handle chunk-1.md, chunk-10.md, chunk-2.md correctly

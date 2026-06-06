@@ -93,7 +93,7 @@ def generate_pdf(input_path, output_path=None, style="federation", interactive=F
         print(f"📄 [Standard] 正在基于浏览器渲染 PDF: {input_path.name}...")
         _render_html_to_pdf(html_path, output_path)
     else:
-        # 5. 如果是联合会模式，先渲染中间件，再进行组装
+        # 5. 如果是研究院模式，先渲染中间件，再进行组装
         print(f"📄 [Federation] 正在开启高级模板渲染管线: {input_path.name}...")
         temp_content_pdf = str(output_path).replace(".pdf", "_content_raw.pdf")
 

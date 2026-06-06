@@ -47,7 +47,7 @@ class PostOSGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("PostOS 2.0 - 智能化专家级出版工作流平台")
-        self.root.geometry("980x500")
+        self.root.geometry("980x540")
 
         # Set fonts
         self.ui_font = ("PingFang SC", 12) if sys.platform == "darwin" else ("Microsoft YaHei", 10)
@@ -129,14 +129,63 @@ class PostOSGUI:
             "Replicate": "REPLICATE_API_KEY"
         }
 
-        # Initialize dynamic key editor vars
-        self.key_editor_vendor = self.settings.get("llm_vendor", "Google Vertex AI")
-        self.key_editor_env_key = self.vendor_env_keys.get(self.key_editor_vendor, "GEMINI_API_KEY")
+        # Initialize summary mode maps
+        self.summary_mode_map = {
+            "显式总结": "explicit",
+            "隐式总结": "implicit",
+            "不总结": "none"
+        }
+        self.summary_mode_rev_map = {
+            "explicit": "显式总结",
+            "implicit": "隐式总结",
+            "none": "不总结",
+            "preset": "显式总结", # Compatibility
+            "auto": "隐式总结"    # Compatibility
+        }
+
+        # Translation mappings for Chinese displays
+        self.task_mode_map = {
+            "专业译介": "translate",
+            "深度解读": "interpret",
+            "双模式并行": "both"
+        }
+        self.task_mode_rev_map = {v: k for k, v in self.task_mode_map.items()}
+
+        self.text_style_map = {
+            "自定义": "custom",
+            "严谨公文": "formal",
+            "商业实战": "business",
+            "叙事故事": "storytelling",
+            "技术深度": "technical",
+            "优雅文艺": "elegant"
+        }
+        self.text_style_rev_map = {v: k for k, v in self.text_style_map.items()}
+
+        self.visual_style_map = {
+            "工业琥珀": "Industrial Amber",
+            "企业蓝": "Corporate Blue",
+            "极简白": "Minimalist White",
+            "雅致金": "Elegant Gold",
+            "研究院风格": "Federation"
+        }
+        self.visual_style_rev_map = {v: k for k, v in self.visual_style_map.items()}
+
+        self.article_type_map = {
+            "行业趋势": "trend",
+            "论文解读": "paper",
+            "政策战略": "policy",
+            "产品剖析": "product",
+            "规范标准": "standard"
+        }
+        self.article_type_rev_map = {v: k for k, v in self.article_type_map.items()}
 
         self.setup_ui()
 
         # Bind global context menus for copy/paste
         self.setup_global_context_menu()
+
+        # Bind window delete protocol for saving settings
+        self.root.protocol("WM_DELETE_WINDOW", self.on_exit)
 
         # Lift window and set Dock icon on macOS
         if sys.platform == "darwin":
@@ -224,43 +273,79 @@ class PostOSGUI:
             "reuse_translation": False,
             "gen_images": False,
             "pdf_gen": True,
+            "summary_mode": "explicit",
+            "summary_prompt": "",
+            "narrative_themes": {
+                "业务主题1": "数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间"
+            },
+            "selected_narrative_theme": "业务主题1",
             "wechat_sync_enabled": False,
             "wechat_theme": "modern",
-            "wechat_author": "",
+            "wechat_author": "AI数据治理研究院",
+            "author_history": ["AI数据治理研究院"],
             "wechat_account_alias": "default",
             "vendor_default_models": {},
-            "image_vendor_default_models": {}
+            "image_vendor_default_models": {},
+            "interpret_publisher": "AI数据治理研究院"
         }
         if os.path.exists(self.settings_file):
             try:
                 with open(self.settings_file, "r", encoding="utf-8") as fs:
-                    defaults.update(json.load(fs))
+                    loaded = json.load(fs)
+                    if "summary_mode" not in loaded:
+                        loaded["summary_mode"] = "explicit"
+                    defaults.update(loaded)
             except: pass
         return defaults
 
     def save_settings(self):
+        current_author = self.wechat_author_var.get().strip()
+        if current_author and current_author not in self.author_history:
+            self.author_history.append(current_author)
+            if hasattr(self, 'wechat_author_combo'):
+                self.wechat_author_combo.config(values=self.author_history)
+
         data = {
             "input": self.input_var.get().strip(),
-            "mode": self.mode_var.get(),
+            "mode": self.task_mode_map.get(self.mode_var.get(), "both"),
             "llm_vendor": self.vendor_var.get(),
             "model": self.model_var.get(),
-            "text_style": self.text_style_var.get(),
-            "cover_style": self.cover_style_var.get(),
-            "pdf_template": self.pdf_template_var.get(),
-            "article_type": self.article_type_var.get(),
+            "text_style": self.text_style_map.get(self.text_style_var.get(), "formal"),
+            "cover_style": self.visual_style_map.get(self.cover_style_var.get(), "Industrial Amber"),
+            "pdf_template": self.visual_style_map.get(self.pdf_template_var.get(), "Federation"),
+            "article_type": self.article_type_map.get(self.article_type_var.get(), "trend"),
             "image_vendor": self.image_vendor_var.get(),
             "image_model": self.image_model_var.get(),
             "localize_images": self.localize_images_var.get(),
             "reuse_translation": self.reuse_translation_var.get(),
             "gen_images": self.gen_images_var.get(),
             "pdf_gen": self.pdf_gen_var.get(),
+            "summary_mode": self.summary_mode_map.get(self.summary_mode_var.get(), "explicit"),
+            "summary_prompt": self.settings.get("summary_prompt", ""),
+            "narrative_themes": self.narrative_themes,
+            "selected_narrative_theme": self.theme_combo.get() if hasattr(self, 'theme_combo') else self.selected_theme_name,
             "wechat_sync_enabled": self.wechat_sync_enabled_var.get(),
             "wechat_theme": self.wechat_theme_var.get(),
-            "wechat_author": self.wechat_author_var.get().strip(),
+            "wechat_author": current_author,
+            "author_history": self.author_history,
             "wechat_account_alias": self.get_selected_wechat_alias(),
             "vendor_default_models": self.vendor_default_models,
-            "image_vendor_default_models": self.image_vendor_default_models
+            "image_vendor_default_models": self.image_vendor_default_models,
+            "interpret_publisher": self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
         }
+        
+        # Save active text before writing to file
+        curr_theme = self.theme_combo.get() if hasattr(self, 'theme_combo') else None
+        curr_text = self.summary_prompt_text.get(1.0, tk.END).strip() if hasattr(self, 'summary_prompt_text') else ""
+        if curr_theme and curr_theme != "无特定主题" and curr_text:
+            self.narrative_themes[curr_theme] = curr_text
+
+        if "无特定主题" in self.narrative_themes:
+            del self.narrative_themes["无特定主题"]
+
+        data["narrative_themes"] = self.narrative_themes
+        data["selected_narrative_theme"] = curr_theme if curr_theme else self.selected_theme_name
+
         try:
             os.makedirs(os.path.dirname(self.settings_file), exist_ok=True)
             with open(self.settings_file, "w", encoding="utf-8") as f:
@@ -332,10 +417,15 @@ class PostOSGUI:
         f_global.pack(fill="x", pady=2)
         
         ttk.Label(f_global, text="任务模式:").grid(row=0, column=0, sticky="w", pady=2)
-        self.mode_var = tk.StringVar(value=self.settings.get("mode", "both"))
-        self.mode_combo = ttk.Combobox(f_global, textvariable=self.mode_var, values=["translate", "interpret", "both"], width=12, state="readonly")
+        val_mode = self.settings.get("mode", "both")
+        self.mode_var = tk.StringVar(value=self.task_mode_rev_map.get(val_mode, val_mode))
+        self.mode_combo = ttk.Combobox(f_global, textvariable=self.mode_var, values=list(self.task_mode_map.keys()), width=12, state="readonly")
         self.mode_combo.grid(row=0, column=1, sticky="w", padx=5)
         self.mode_combo.bind("<<ComboboxSelected>>", self.on_mode_change)
+
+        # 内部保留 wechat_author_var 作为兼容变量（不显示在 UI 中）
+        self.author_history = self.settings.get("author_history", [])
+        self.wechat_author_var = tk.StringVar(value=self.settings.get("wechat_author", ""))
 
         # Columns container (side-by-side)
         f_cols = ttk.Frame(f_param)
@@ -348,13 +438,20 @@ class PostOSGUI:
         self.f_translate.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
         ttk.Label(self.f_translate, text="写作风格:").grid(row=0, column=0, sticky="w", pady=2)
-        self.text_style_var = tk.StringVar(value=self.settings.get("text_style", "formal"))
-        self.text_style_combo = ttk.Combobox(self.f_translate, textvariable=self.text_style_var, values=["custom", "formal", "business", "storytelling", "technical", "elegant"], width=12, state="readonly")
+        val_style = self.settings.get("text_style", "formal")
+        self.text_style_var = tk.StringVar(value=self.text_style_rev_map.get(val_style, val_style))
+        user_style_path = os.path.join(POSTFDRY_ROOT, "config", "styles", "user_style.md")
+        has_custom = os.path.exists(user_style_path)
+        styles_display = ["严谨公文", "商业实战", "叙事故事", "技术深度", "优雅文艺"]
+        if has_custom:
+            styles_display.insert(0, "自定义")
+        self.text_style_combo = ttk.Combobox(self.f_translate, textvariable=self.text_style_var, values=styles_display, width=12, state="readonly")
         self.text_style_combo.grid(row=0, column=1, sticky="w", padx=5)
 
         ttk.Label(self.f_translate, text="PDF 模板:").grid(row=1, column=0, sticky="w", pady=2)
-        self.pdf_template_var = tk.StringVar(value=self.settings.get("pdf_template", "Federation"))
-        self.pdf_template_combo = ttk.Combobox(self.f_translate, textvariable=self.pdf_template_var, values=["Federation", "Industrial Amber", "Corporate Blue", "Minimalist White"], width=12, state="readonly")
+        val_pdf = self.settings.get("pdf_template", "Federation")
+        self.pdf_template_var = tk.StringVar(value=self.visual_style_rev_map.get(val_pdf, val_pdf))
+        self.pdf_template_combo = ttk.Combobox(self.f_translate, textvariable=self.pdf_template_var, values=["研究院风格"], width=12, state="readonly")
         self.pdf_template_combo.grid(row=1, column=1, sticky="w", padx=5)
 
         self.pdf_gen_var = tk.BooleanVar(value=self.settings.get("pdf_gen", True))
@@ -367,27 +464,102 @@ class PostOSGUI:
         self.chk_localize = ttk.Checkbutton(self.f_translate, text="图片英文文本汉化", variable=self.localize_images_var)
         self.chk_localize.grid(row=3, column=0, columnspan=2, sticky="w", pady=2, padx=2)
 
-        # 2.3 Interpret Config Group (Right Column)
+        # 2.3 Interpret Config Group (Right Column) - Redesigned side-by-side
         self.f_interpret = ttk.LabelFrame(f_cols, text=" 解读服务专属参数 ", padding=5)
         self.f_interpret.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
+        self.f_interpret.columnconfigure(0, weight=1)
+        self.f_interpret.columnconfigure(1, weight=1)
 
-        ttk.Label(self.f_interpret, text="重构类型:").grid(row=0, column=0, sticky="w", pady=2)
-        self.article_type_var = tk.StringVar(value=self.settings.get("article_type", "trend"))
-        self.article_type_combo = ttk.Combobox(self.f_interpret, textvariable=self.article_type_var, values=["trend", "paper", "policy", "product", "standard"], width=12, state="readonly")
+        f_interpret_left = ttk.Frame(self.f_interpret)
+        f_interpret_left.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+
+        f_interpret_right = ttk.Frame(self.f_interpret)
+        f_interpret_right.grid(row=0, column=1, sticky="nw", padx=10, pady=2)
+        f_interpret_right.rowconfigure(0, weight=1)
+        f_interpret_right.columnconfigure(0, weight=1)
+
+        # Left Column Widgets inside self.f_interpret
+        # 1. 重构风格
+        ttk.Label(f_interpret_left, text="重构风格:").grid(row=0, column=0, sticky="w", pady=2)
+        self.article_type_var = tk.StringVar(value=self.article_type_rev_map.get(self.settings.get("article_type", "trend"), "行业趋势"))
+        self.article_type_combo = ttk.Combobox(f_interpret_left, textvariable=self.article_type_var, values=list(self.article_type_map.keys()), width=12, state="readonly")
         self.article_type_combo.grid(row=0, column=1, sticky="w", padx=5)
 
-        ttk.Label(self.f_interpret, text="视觉 DNA:").grid(row=1, column=0, sticky="w", pady=2)
-        self.cover_style_var = tk.StringVar(value=self.settings.get("cover_style", "Industrial Amber"))
-        self.cover_style_combo = ttk.Combobox(self.f_interpret, textvariable=self.cover_style_var, values=["Industrial Amber", "Corporate Blue", "Minimalist White", "Elegant Gold", "Federation"], width=12, state="readonly")
-        self.cover_style_combo.grid(row=1, column=1, sticky="w", padx=5)
+        # 2. 叙事主题 (placed under 重构风格)
+        ttk.Label(f_interpret_left, text="叙事主题:").grid(row=1, column=0, sticky="w", pady=2)
+        f_theme_line = ttk.Frame(f_interpret_left)
+        f_theme_line.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+
+        # Load themes from settings
+        self.narrative_themes = self.settings.get("narrative_themes", {
+            "业务主题1": "数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间"
+        })
+        if "无特定主题" in self.narrative_themes:
+            del self.narrative_themes["无特定主题"]
+        self.selected_theme_name = self.settings.get("selected_narrative_theme", "业务主题1")
+        if self.selected_theme_name != "无特定主题" and self.selected_theme_name not in self.narrative_themes:
+            self.selected_theme_name = list(self.narrative_themes.keys())[0] if self.narrative_themes else "无特定主题"
+
+        self.theme_combo = ttk.Combobox(f_theme_line, values=["无特定主题"] + list(self.narrative_themes.keys()), width=12, state="readonly")
+        self.theme_combo.set(self.selected_theme_name)
+        self.theme_combo.pack(side="left")
+        self.theme_combo.bind("<<ComboboxSelected>>", self.on_theme_select)
+
+        self.add_theme_btn = tk.Button(f_theme_line, text="+", command=self.on_add_theme, font=("Arial", 9, "bold"), bd=1, relief="raised", highlightthickness=0, padx=2, pady=0)
+        self.add_theme_btn.pack(side="left", padx=(3, 0))
+
+        self.del_theme_btn = tk.Button(f_theme_line, text="-", command=self.on_del_theme, font=("Arial", 9, "bold"), bd=1, relief="raised", highlightthickness=0, padx=2, pady=0)
+        self.del_theme_btn.pack(side="left", padx=(3, 0))
+
+        # 3. 生成插图/封面
+        self.gen_images_var = tk.BooleanVar(value=self.settings.get("gen_images", False))
+        self.chk_gen_images = ttk.Checkbutton(f_interpret_left, text="生成插图/封面", variable=self.gen_images_var, command=self.update_image_fields_state)
+        self.chk_gen_images.grid(row=2, column=0, columnspan=2, sticky="w", pady=2, padx=2)
+
+        # 4. 视觉风格 - Packed in subframe to keep preview canvas close
+        ttk.Label(f_interpret_left, text="视觉风格:").grid(row=3, column=0, sticky="w", pady=2)
+        f_visual_line = ttk.Frame(f_interpret_left)
+        f_visual_line.grid(row=3, column=1, columnspan=2, sticky="w", padx=5, pady=2)
+
+        val_cover = self.settings.get("cover_style", "Industrial Amber")
+        self.cover_style_var = tk.StringVar(value=self.visual_style_rev_map.get(val_cover, val_cover))
+        self.cover_style_combo = ttk.Combobox(f_visual_line, textvariable=self.cover_style_var, values=list(self.visual_style_map.keys()), width=12, state="readonly")
+        self.cover_style_combo.pack(side="left")
         self.cover_style_combo.bind("<<ComboboxSelected>>", self.update_dna_color_preview)
 
-        self.dna_preview_canvas = tk.Canvas(self.f_interpret, width=16, height=16, highlightthickness=0)
-        self.dna_preview_canvas.grid(row=1, column=2, padx=2, sticky="w")
+        self.dna_preview_canvas = tk.Canvas(f_visual_line, width=16, height=16, highlightthickness=0)
+        self.dna_preview_canvas.pack(side="left", padx=(3, 0))
 
-        self.gen_images_var = tk.BooleanVar(value=self.settings.get("gen_images", False))
-        self.chk_gen_images = ttk.Checkbutton(self.f_interpret, text="生成插图/封面", variable=self.gen_images_var)
-        self.chk_gen_images.grid(row=2, column=0, columnspan=2, sticky="w", pady=2, padx=2)
+        # 5. 总结模式
+        saved_mode = self.settings.get("summary_mode", "explicit")
+        display_mode = self.summary_mode_rev_map.get(saved_mode, "显式总结")
+        self.summary_mode_var = tk.StringVar(value=display_mode)
+
+        ttk.Label(f_interpret_left, text="总结模式:").grid(row=4, column=0, sticky="w", pady=2)
+        self.summary_mode_combo = ttk.Combobox(f_interpret_left, textvariable=self.summary_mode_var, values=["显式总结", "隐式总结", "不总结"], width=12, state="readonly")
+        self.summary_mode_combo.grid(row=4, column=1, sticky="w", padx=5)
+        self.summary_mode_combo.bind("<<ComboboxSelected>>", self.on_summary_mode_change)
+
+        # 6. 发布单位（解读文章的编辑机构，用于生成解读文章作者栏和公众号作者栏）
+        ttk.Label(f_interpret_left, text="发布单位:").grid(row=5, column=0, sticky="w", pady=2)
+        self.interpret_publisher_var = tk.StringVar(value=self.settings.get("interpret_publisher", "AI数据治理研究院"))
+        ttk.Entry(f_interpret_left, textvariable=self.interpret_publisher_var, width=14).grid(row=5, column=1, sticky="w", padx=5)
+
+        # Right Column Widgets inside self.f_interpret (for narrative content editor)
+        f_summary_container = ttk.Frame(f_interpret_right)
+        f_summary_container.grid(row=0, column=0, sticky="nsew")
+
+        self.summary_prompt_text = tk.Text(f_summary_container, height=4, width=18, font=self.ui_font, wrap="word")
+        scrollbar_summary = ttk.Scrollbar(f_summary_container, orient="vertical", command=self.summary_prompt_text.yview)
+        self.summary_prompt_text.config(yscrollcommand=scrollbar_summary.set)
+        self.summary_prompt_text.pack(side="left", fill="both", expand=True)
+        scrollbar_summary.pack(side="right", fill="y")
+
+        # Initial populate
+        if self.selected_theme_name == "无特定主题":
+            self.summary_prompt_text.config(state="disabled")
+        else:
+            self.summary_prompt_text.insert(tk.END, self.narrative_themes.get(self.selected_theme_name, ""))
 
         # --- TAB 5: WeChat Config ---
         self.f_wechat = ttk.LabelFrame(self.tab5, text=" 微信公众号同步配置 ", padding=5)
@@ -412,14 +584,9 @@ class PostOSGUI:
         self.wechat_theme_combo = ttk.Combobox(self.f_wechat, textvariable=self.wechat_theme_var, values=["modern", "default", "elegant", "simple"], state="readonly", width=12)
         self.wechat_theme_combo.grid(row=1, column=3, sticky="w", padx=5)
 
-        ttk.Label(self.f_wechat, text="发布作者:").grid(row=2, column=0, sticky="w", pady=2)
-        self.wechat_author_var = tk.StringVar()
-        self.wechat_author_entry = ttk.Entry(self.f_wechat, textvariable=self.wechat_author_var, width=20)
-        self.wechat_author_entry.grid(row=2, column=1, sticky="w", padx=5)
-
         self.wechat_sync_enabled_var = tk.BooleanVar(value=self.settings.get("wechat_sync_enabled", False))
         self.chk_wechat_sync = ttk.Checkbutton(self.f_wechat, text="同步至微信草稿箱", variable=self.wechat_sync_enabled_var)
-        self.chk_wechat_sync.grid(row=2, column=2, columnspan=2, sticky="w", pady=2, padx=10)
+        self.chk_wechat_sync.grid(row=2, column=0, columnspan=2, sticky="w", pady=2, padx=5)
 
         # --- TAB 4: Model Configuration ---
         # 1. Text LLM Config Group
@@ -511,7 +678,7 @@ class PostOSGUI:
         self.author_var = tk.StringVar()
         ttk.Entry(f_meta, textvariable=self.author_var, width=30).grid(row=3, column=1, sticky="w", padx=5, columnspan=2)
 
-        ttk.Label(f_meta, text="发布机构:").grid(row=4, column=0, sticky="w", pady=5)
+        ttk.Label(f_meta, text="机构/平台:").grid(row=4, column=0, sticky="w", pady=5)
         self.source_var = tk.StringVar()
         ttk.Entry(f_meta, textvariable=self.source_var, width=30).grid(row=4, column=1, sticky="w", padx=5, columnspan=2)
 
@@ -523,9 +690,9 @@ class PostOSGUI:
         self.chk_reuse_translation = ttk.Checkbutton(f_meta, text="沿用缓存翻译", variable=self.reuse_translation_var)
         self.chk_reuse_translation.grid(row=6, column=1, sticky="w", pady=5, padx=5, columnspan=2)
 
-        f_thoughts = ttk.LabelFrame(self.tab2, text=" 译者/编辑核心导读洞察 ", padding=10)
+        f_thoughts = ttk.LabelFrame(self.tab2, text=" 编辑思路 ", padding=10)
         f_thoughts.pack(fill="both", expand=True, pady=5)
-        self.thoughts_text = tk.Text(f_thoughts, height=3, font=self.ui_font)
+        self.thoughts_text = tk.Text(f_thoughts, height=4, font=self.ui_font)
         self.thoughts_text.pack(fill="both", expand=True)
 
         # --- TAB 3: Execution Logs ---
@@ -593,7 +760,9 @@ class PostOSGUI:
     def set_frame_state(self, frame, state):
         for child in frame.winfo_children():
             try:
-                if isinstance(child, ttk.Combobox):
+                if isinstance(child, (ttk.Frame, ttk.LabelFrame, tk.Frame)):
+                    self.set_frame_state(child, state)
+                elif isinstance(child, ttk.Combobox):
                     child.config(state="readonly" if state == "normal" else "disabled")
                 else:
                     child.config(state=state)
@@ -656,8 +825,8 @@ class PostOSGUI:
         else:
             self.reuse_translation_var.set(False)
 
-    def on_mode_change(self, event):
-        m = self.mode_var.get()
+    def on_mode_change(self, event=None):
+        m = self.task_mode_map.get(self.mode_var.get(), "both")
         if m == "translate":
             self.set_frame_state(self.f_translate, "normal")
             self.set_frame_state(self.f_interpret, "disabled")
@@ -669,11 +838,108 @@ class PostOSGUI:
             self.pdf_gen_var.set(False)
             self.image_vendor_combo.config(state="readonly")
             self.image_model_combo.config(state="readonly")
+            self.on_summary_mode_change()
+            self.update_image_fields_state()
         else: # both
             self.set_frame_state(self.f_translate, "normal")
             self.set_frame_state(self.f_interpret, "normal")
             self.image_vendor_combo.config(state="readonly")
             self.image_model_combo.config(state="readonly")
+            self.on_summary_mode_change()
+            self.update_image_fields_state()
+
+    def update_image_fields_state(self):
+        m = self.task_mode_map.get(self.mode_var.get(), "both")
+        if m == "translate":
+            return
+        state = "readonly" if self.gen_images_var.get() else "disabled"
+        self.cover_style_combo.config(state=state)
+
+    def on_summary_mode_change(self, event=None):
+        # The narrative theme configuration is independent of summary mode.
+        # Ensure the text area is always editable, unless "无特定主题" is selected.
+        if hasattr(self, 'theme_combo') and self.theme_combo.get() == "无特定主题":
+            self.summary_prompt_text.config(state="disabled")
+        else:
+            self.summary_prompt_text.config(state="normal")
+
+    def on_theme_select(self, event=None):
+        # Save current text of the previous selection first (if it's not "无特定主题")
+        prev_theme = self.selected_theme_name
+        prev_text = self.summary_prompt_text.get(1.0, tk.END).strip()
+        if prev_theme and prev_theme != "无特定主题" and prev_theme in self.narrative_themes:
+            self.narrative_themes[prev_theme] = prev_text
+
+        # Switch to new selection
+        new_theme = self.theme_combo.get()
+        self.selected_theme_name = new_theme
+        self.summary_prompt_text.config(state="normal")
+        self.summary_prompt_text.delete(1.0, tk.END)
+        if new_theme == "无特定主题":
+            self.summary_prompt_text.config(state="disabled")
+        else:
+            self.summary_prompt_text.insert(tk.END, self.narrative_themes.get(new_theme, ""))
+
+    def on_add_theme(self):
+        import tkinter.simpledialog as sd
+        # Prompt user to input content for new theme
+        content = sd.askstring("新增业务主题", "请输入新业务主题的解读视角与关键词内容：")
+        if content and content.strip():
+            # Generate next theme name: 业务主题X
+            import re
+            existing_indices = []
+            for k in self.narrative_themes.keys():
+                match = re.search(r'业务主题(\d+)', k)
+                if match:
+                    existing_indices.append(int(match.group(1)))
+            next_idx = max(existing_indices) + 1 if existing_indices else 1
+            new_theme_name = f"业务主题{next_idx}"
+
+            # Save current text first
+            curr_theme = self.selected_theme_name
+            curr_text = self.summary_prompt_text.get(1.0, tk.END).strip()
+            if curr_theme and curr_theme != "无特定主题" and curr_theme in self.narrative_themes:
+                self.narrative_themes[curr_theme] = curr_text
+
+            # Add new theme
+            self.narrative_themes[new_theme_name] = content.strip()
+            self.selected_theme_name = new_theme_name
+
+            # Update Combobox values (include "无特定主题")
+            self.theme_combo.config(values=["无特定主题"] + list(self.narrative_themes.keys()))
+            self.theme_combo.set(new_theme_name)
+
+            # Update text area
+            self.summary_prompt_text.config(state="normal")
+            self.summary_prompt_text.delete(1.0, tk.END)
+            self.summary_prompt_text.insert(tk.END, content.strip())
+
+    def on_del_theme(self):
+        curr_theme = self.selected_theme_name
+        if curr_theme == "无特定主题":
+            messagebox.showwarning("警告", "“无特定主题”是系统保留选项，不可删除！")
+            return
+
+        if len(self.narrative_themes) <= 1:
+            messagebox.showwarning("警告", "列表中只有一个有内容的主题，不能删除！")
+            return
+        
+        if messagebox.askyesno("删除主题", f"确定删除当前叙事主题 '{curr_theme}' 吗？"):
+            if curr_theme in self.narrative_themes:
+                del self.narrative_themes[curr_theme]
+            
+            remaining_themes = list(self.narrative_themes.keys())
+            new_theme = remaining_themes[0]
+            self.selected_theme_name = new_theme
+            
+            self.theme_combo.config(values=["无特定主题"] + remaining_themes)
+            self.theme_combo.set(new_theme)
+            
+            self.summary_prompt_text.config(state="normal")
+            self.summary_prompt_text.delete(1.0, tk.END)
+            self.summary_prompt_text.insert(tk.END, self.narrative_themes[new_theme])
+            
+            self.save_settings()
 
     def reset_merged_button(self):
         self.merged_button_state = "analyze"
@@ -701,7 +967,7 @@ class PostOSGUI:
                 content = f.read()
             
             meta_eng = MetadataEngine(content)
-            clean_body = meta_eng.clean_body(content)
+            clean_body = meta_eng.clean_body(content, keep_cover=True)
             
             # Read values from GUI
             # Use GUI date value; fall back to existing metadata; never default to today
@@ -709,10 +975,12 @@ class PostOSGUI:
             existing_date = meta_eng.get('date') or meta_eng.get('publish_date') or ''
             final_date = gui_date or existing_date
 
+            interpret_pub = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
             new_yaml = {
                 'title': self.std_title_var.get().strip(),
                 'eng_title': self.eng_title_var.get().strip(),
-                'author': self.author_var.get().strip(),
+                'author': interpret_pub,
+                'original_author': self.author_var.get().strip(),
                 'date': final_date,
                 'source': self.source_var.get().strip(),
                 'url': meta_eng.get('url') or '',
@@ -751,23 +1019,42 @@ class PostOSGUI:
             config_data['standard_title_history'] = self.standard_title_history
 
         config_data['eng_title'] = self.eng_title_var.get().strip()
-        config_data['author'] = self.author_var.get().strip()
+        interpret_pub = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
+        config_data['author'] = interpret_pub
+        config_data['original_author'] = self.author_var.get().strip()
         config_data['source'] = self.source_var.get().strip()
         config_data['date'] = self.date_var.get().strip()
+        # 解读专属发布单位：区别于原文作者/机构
+        interpret_pub = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
+        if interpret_pub:
+            config_data['interpret_publisher'] = interpret_pub
         target = self.input_var.get().strip()
         if target and not target.startswith(('http://', 'https://')):
             config_data['original_path'] = os.path.abspath(target)
-        config_data['mode'] = self.mode_var.get()
-        config_data['text_style'] = self.text_style_var.get()
-        config_data['cover_style'] = self.cover_style_var.get()
-        config_data['info_style'] = self.cover_style_var.get()
-        config_data['article_type'] = self.article_type_var.get()
+        config_data['mode'] = self.task_mode_map.get(self.mode_var.get(), "both")
+        config_data['text_style'] = self.text_style_map.get(self.text_style_var.get(), "formal")
+        config_data['cover_style'] = self.visual_style_map.get(self.cover_style_var.get(), "Industrial Amber")
+        config_data['info_style'] = self.visual_style_map.get(self.cover_style_var.get(), "Industrial Amber")
+        config_data['article_type'] = self.article_type_map.get(self.article_type_var.get(), "trend")
         config_data['image_model'] = self.image_model_var.get()
         config_data['localize_images'] = self.localize_images_var.get()
         config_data['pdf_gen'] = self.pdf_gen_var.get()
         config_data['llm_model'] = self.model_var.get()
+        config_data['summary_mode'] = self.summary_mode_map.get(self.summary_mode_var.get(), "explicit")
+        config_data['gen_summary'] = (self.summary_mode_var.get() != "无总结")
         config_data['thoughts'] = self.thoughts_text.get(1.0, tk.END).strip()
         config_data['last_run'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Save narrative themes details to project config
+        curr_theme = self.theme_combo.get()
+        curr_text = self.summary_prompt_text.get(1.0, tk.END).strip()
+        if curr_theme and curr_theme != "无特定主题":
+            self.narrative_themes[curr_theme] = curr_text
+        if "无特定主题" in self.narrative_themes:
+            del self.narrative_themes["无特定主题"]
+        config_data['narrative_themes'] = self.narrative_themes
+        config_data['selected_narrative_theme'] = curr_theme
+        config_data['narrative_theme'] = "" if curr_theme == "无特定主题" else curr_text
         
         try:
             with open(config_path, 'w', encoding='utf-8') as f:
@@ -862,6 +1149,32 @@ class PostOSGUI:
                     self.author_var.set(author)
                     self.source_var.set(source)
                     self.date_var.set(date_val if date_val else cfg.get('date', ''))
+                    saved_mode = cfg.get('summary_mode', 'explicit')
+                    self.summary_mode_var.set(self.summary_mode_rev_map.get(saved_mode, "显式总结"))
+
+                    # Load themes
+                    self.narrative_themes = cfg.get('narrative_themes', {
+                        "业务主题1": "数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间"
+                    })
+                    if "无特定主题" in self.narrative_themes:
+                        del self.narrative_themes["无特定主题"]
+                    selected_theme = cfg.get('selected_narrative_theme', '业务主题1')
+                    if selected_theme != "无特定主题" and selected_theme not in self.narrative_themes:
+                        selected_theme = list(self.narrative_themes.keys())[0] if self.narrative_themes else "无特定主题"
+
+                    self.theme_combo.config(values=["无特定主题"] + list(self.narrative_themes.keys()))
+                    self.theme_combo.set(selected_theme)
+                    self.selected_theme_name = selected_theme
+
+                    saved_prompt = cfg.get('narrative_theme', cfg.get('summary_prompt'))
+                    self.summary_prompt_text.config(state="normal")
+                    self.summary_prompt_text.delete(1.0, tk.END)
+                    if selected_theme == "无特定主题":
+                        self.summary_prompt_text.config(state="disabled")
+                    else:
+                        if saved_prompt is not None:
+                            self.summary_prompt_text.insert(tk.END, saved_prompt)
+                    self.on_summary_mode_change()
                     
                                         # Load history
                     self.catchy_title_history = cfg.get("catchy_title_history", [])
@@ -933,7 +1246,7 @@ class PostOSGUI:
                     if not expected_title:
                         expected_title = os.path.splitext(os.path.basename(target))[0]
                 
-                if expected_title:
+                if expected_title and expected_title != "X post" and not expected_title.startswith("Tweet by"):
                     new_title_clean = re.sub(r'[^a-zA-Z0-9]', '', expected_title).lower()
                     old_title_clean = re.sub(r'[^a-zA-Z0-9]', '', self.eng_title_var.get()).lower()
                     if new_title_clean != old_title_clean:
@@ -986,7 +1299,8 @@ class PostOSGUI:
             # Fetch AI recommendation
             self.log(f"🤔 [AI Onboarding] 正在调用 AI 剖析文章并拟定建议规划...")
             from postfdry_os import OnboardingAssistant
-            assistant = OnboardingAssistant(source_file, model_name=model)
+            curr_theme_text = self.summary_prompt_text.get(1.0, tk.END).strip() if hasattr(self, 'summary_prompt_text') else ""
+            assistant = OnboardingAssistant(source_file, model_name=model, narrative_theme=curr_theme_text)
             rec = assistant.get_recommendation()
             
             self.log(f"📝 [AI Onboarding] 元数据获取成功，正在确认与重构项目规划...")
@@ -1069,13 +1383,18 @@ class PostOSGUI:
                     "technical": "技术深度文档规范 (Technical)",
                     "elegant": "优雅文艺散文风格 (Elegant)"
                 }
-                type_mapping = {
-                    "trend": "行业趋势分析 (Trend)",
-                    "paper": "论文深度解读 (Paper)",
-                    "policy": "政策战略解读 (Policy)",
-                    "product": "产品/技术剖析 (Product)",
-                    "standard": "规范与标准解读 (Standard)"
-                }
+                try:
+                    from common_utils import load_narrative_logics
+                    logics = load_narrative_logics()
+                    type_mapping = {k: v.get("name", k) for k, v in logics.items()}
+                except Exception:
+                    type_mapping = {
+                        "trend": "行业趋势分析 (Trend)",
+                        "paper": "论文深度解读 (Paper)",
+                        "policy": "政策战略解读 (Policy)",
+                        "product": "产品/技术剖析 (Product)",
+                        "standard": "规范与标准解读 (Standard)"
+                    }
                 
                 rec_style = rec.get("text_style", "formal")
                 rec_type = rec.get("article_type", "trend")
@@ -1092,7 +1411,7 @@ class PostOSGUI:
                 self.log("\n🎨 [AI Onboarding] 智能出版风格与模式配置汇总:")
                 self.log(f"  ▪ 建议写作风格: {log_style}")
                 self.log(f"  ▪ 建议文章类型: {log_type}")
-                self.log(f"  ▪ 建议导读洞察: {rec.get('thoughts', '无')}")
+                self.log(f"  ▪ 建议编辑思路: {rec.get('thoughts', '无')}")
                 self.log(f"  ▪ 智能风格推荐分析理由: {rec.get('justification', '无')}\n")
                 
                 self.log(f"✅ [AI Onboarding] 出版规划推荐加载成功！\n理由/分析: {rec.get('justification')}")
@@ -1151,17 +1470,17 @@ class PostOSGUI:
             prompt = f"""
             你是一位顶级的中文科技媒体/咨询报告总编辑。
             
-            请基于以下原文正文以及译者/编辑核心导读洞察（Thoughts），为文章重新拟定两个高质量的中文字头：
+            请基于以下原文正文以及编辑思路（Thoughts），为文章重新拟定两个高质量的中文字头：
             1. **标准译介标题 (Standard Title)**：专业、直译但符合中文习惯，适合行业深度报告或学术译介，突出客观严谨性。
             2. **吸睛解读标题 (Catchy Title)**：极具行业洞察力、观点锐利、极具传播力（适合微信公众号或主流科技媒体）。
             
-            【译者/编辑核心导读洞察 (Thoughts)】:
+            【编辑思路 (Thoughts)】:
             {thoughts}
             
             【原文正文】:
             {content[:6000]}
             
-            请返回符合以下 JSON 格式的字符串（不要有任何 markdown 标记包裹，直接输出 JSON）：
+            请返回符合以下 JSON 格式 of the response (do not wrap in markdown tags):
             {{
               "standard_title": "你的标准译介标题",
               "catchy_title": "你的吸睛解读标题"
@@ -1282,11 +1601,11 @@ class PostOSGUI:
         cmd = [
             venv_python, "-u", dispatch_script, target,
             "--non-interactive",
-            "--mode", self.mode_var.get(),
+            "--mode", self.task_mode_map.get(self.mode_var.get(), "both"),
             "--model", self.model_var.get(),
-            "--text-style", self.text_style_var.get(),
-            "--cover-style", self.cover_style_var.get(),
-            "--type", self.article_type_var.get(),
+            "--text-style", self.text_style_map.get(self.text_style_var.get(), "formal"),
+            "--cover-style", self.visual_style_map.get(self.cover_style_var.get(), "Industrial Amber"),
+            "--type", self.article_type_map.get(self.article_type_var.get(), "trend"),
             "--image-model", image_model_arg
         ]
 
@@ -1308,10 +1627,31 @@ class PostOSGUI:
             cmd.append("--reuse-translation")
         if self.gen_images_var.get():
             cmd.append("--gen-images")
+        mode_val = self.summary_mode_map.get(self.summary_mode_var.get(), "explicit")
+        cmd.extend(["--summary-mode", mode_val])
+        
+        # Save active text first
+        curr_theme = self.theme_combo.get()
+        curr_text = self.summary_prompt_text.get(1.0, tk.END).strip()
+        if curr_theme and curr_theme != "无特定主题":
+            self.narrative_themes[curr_theme] = curr_text
+        if curr_theme == "无特定主题":
+            cmd.extend(["--narrative-theme", ""])
+        else:
+            cmd.extend(["--narrative-theme", curr_text])
         if self.pdf_gen_var.get():
             cmd.append("--pdf")
         else:
             cmd.append("--no-pdf")
+        
+        # 解读模式用"发布单位"作为作者；译介/两者模式用全局"发布作者"
+        mode_val_for_author = self.task_mode_map.get(self.mode_var.get(), "both")
+        if mode_val_for_author == "interpret" and hasattr(self, 'interpret_publisher_var'):
+            gui_author = self.interpret_publisher_var.get().strip() or self.wechat_author_var.get().strip()
+        else:
+            gui_author = self.wechat_author_var.get().strip()
+        if gui_author:
+            cmd.extend(["--author", gui_author])
 
         print(f"🚀 [GUI] Running: {' '.join(cmd)}")
         threading.Thread(target=self.run_worker_thread, args=(cmd,), daemon=True).start()
@@ -1444,6 +1784,7 @@ class PostOSGUI:
             if not messagebox.askyesno("退出", "流水线正在运行，确定中止并退出？"):
                 return
             self.stop_process()
+        self.save_settings()
         self.root.destroy()
 
     def on_image_vendor_change(self, event):
@@ -1606,7 +1947,7 @@ class PostOSGUI:
                 self.wechat_account_combo.current(matched_idx)
                 
             self.wechat_theme_var.set(self.settings.get("wechat_theme", "modern"))
-            self.wechat_author_var.set(self.settings.get("wechat_author", ""))
+            self.wechat_author_var.set(self.settings.get("wechat_author", "AI数据治理研究院"))
         except Exception as e:
             print(f"Failed to load wechat data: {e}")
 
@@ -1651,7 +1992,17 @@ class PostOSGUI:
                 cover_path = cover_file
                 self.log(f"📌 [WeChat] 找到本地封面图: {cover_file}")
             
-            engine_script = "/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-post-to-wechat/scripts/wechat-api.ts"
+            try:
+                from common_utils import resolve_tool_path
+                wechat_skill_dir = resolve_tool_path("baoyu-post-to-wechat")
+            except Exception as e:
+                print(f"  [Warning] Failed to resolve baoyu-post-to-wechat dynamically: {e}")
+                wechat_skill_dir = None
+
+            if wechat_skill_dir and os.path.exists(wechat_skill_dir):
+                engine_script = os.path.join(wechat_skill_dir, "scripts", "wechat-api.ts")
+            else:
+                engine_script = "/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-post-to-wechat/scripts/wechat-api.ts"
             
             cmd = ["npx", "-y", "bun", engine_script, file_path, "--theme", theme, "--author", author]
             if alias and alias != "default":
@@ -1884,7 +2235,7 @@ class PostOSGUI:
             pass
 
     def update_dna_color_preview(self, event=None):
-        dna = self.cover_style_var.get()
+        dna = self.visual_style_map.get(self.cover_style_var.get(), "Industrial Amber")
         colors = {
             "Industrial Amber": "#FFB900",
             "Corporate Blue": "#0078D4",

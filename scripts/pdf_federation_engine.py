@@ -297,7 +297,7 @@ def customize_cover(template_path, output_path, metadata):
     return output_path
 
 def assemble_federation_pdf(content_pdf_path, output_path, metadata):
-    print(f"🛠️  正在组装联合会风 PDF (Acrobat Compatibility Mode)...")
+    print(f"🛠️  正在组装研究院风 PDF (Acrobat Compatibility Mode)...")
 
     temp_cover = "temp_cover.pdf"
     customize_cover(COVER_TEMPLATE, temp_cover, metadata)

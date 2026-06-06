@@ -91,7 +91,6 @@ class ProfessionalAssembler:
 
     /* 正文样式加固 */
     h1, h2, h3 { color: var(--primary-color); margin-top: 1.5em; }
-    h1 { border-left: 8px solid var(--primary-color); padding-left: 15px; }
 
     /* 屏蔽 baoyu 工具自动生成的 YAML 表格 (我们在 Header 中手动处理) */
     table:first-of-type { display: none; }
@@ -109,7 +108,7 @@ class ProfessionalAssembler:
         margin: 25px 0;
         padding: 15px 25px;
         background-color: #f9f9f9;
-        border-left: 5px solid var(--accent-color) !important;
+        border-left: 4px solid #ddd !important;
         font-style: italic;
     }
 
@@ -180,7 +179,7 @@ class ProfessionalAssembler:
 
         meta_items = []
         if author and author.lower() != 'none':
-            meta_items.append(f'<span class="meta-item"><b>作者：</b>{author}</span>')
+            meta_items.append(f'<span class="meta-item"><b>译者：</b>{author}</span>')
         if source:
             meta_items.append(f'<span class="meta-item"><b>出处：</b>{source}</span>')
         if date:
@@ -334,8 +333,22 @@ class TranslationWorkflow:
         trans_meta = MetadataEngine(trans_content)
         body = trans_meta.clean_body(trans_content, keep_cover=True).strip()
 
+        # Load project config if exists to merge manual adjustments
+        import json
+        config_path = self.wip_dir / "project_config.json"
+        project_config = {}
+        if config_path.exists():
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    project_config = json.load(f)
+            except Exception as e:
+                print(f"⚠️ Failed to load project config: {e}")
+
         # 复制原始元数据作为基础 (这是最可靠的数据源)
         final_meta = self.metadata_engine.raw_meta.copy()
+        for k in ['title', 'eng_title', 'author', 'source', 'date']:
+            if project_config.get(k):
+                final_meta[k] = project_config[k]
 
         # 1. 备份原标题为 eng_title (仅当原标题为英文时，防止二次改写导致中文存入英文位)
         orig_title = self.metadata_engine.get('title')
@@ -475,7 +488,16 @@ class TranslationWorkflow:
 
     def generate_professional_html(self, md_path, meta_engine):
         """调用工具生成基础 HTML，然后使用 Assembler 进行专业增强。"""
-        html_skill_dir = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-markdown-to-html"
+        try:
+            from common_utils import resolve_tool_path
+            html_skill_dir = resolve_tool_path("baoyu-markdown-to-html")
+        except Exception as e:
+            print(f"  [Warning] Failed to resolve baoyu-markdown-to-html path dynamically: {e}")
+            html_skill_dir = None
+
+        if not html_skill_dir or not os.path.exists(html_skill_dir):
+            html_skill_dir = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-markdown-to-html"
+
         main_ts = os.path.join(html_skill_dir, "scripts", "main.ts")
 
         # 先生成基础 HTML

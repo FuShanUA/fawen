@@ -959,17 +959,21 @@ def extract_from_file(filepath):
     print(f"Crawler Agent: Extracting from {filepath}...")
 
     if ext == '.pdf':
+        pdf_error = None
         try:
             import pdfplumber
             with pdfplumber.open(filepath) as pdf:
                 content = "\n\n".join([p.extract_text() or "" for p in pdf.pages])
-        except ImportError:
+        except Exception as e:
+            pdf_error = str(e)
             try:
                 from pypdf import PdfReader
                 reader = PdfReader(filepath)
-                content = "\n\n".join([p.extract_text() for p in reader.pages])
-            except ImportError:
-                return "Error: Neither pdfplumber nor pypdf installed."
+                content = "\n\n".join([page.extract_text() or "" for page in reader.pages])
+                pdf_error = None  # pypdf succeeded
+            except Exception as e2:
+                content = f"[PDF extraction failed: {pdf_error} | {e2}]"
+                print(f"Crawler Agent: PDF extraction error: {pdf_error} | {e2}")
 
     elif ext in ['.txt', '.md']:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:

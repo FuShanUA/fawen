@@ -276,7 +276,7 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
     # NEW: Aggressive Body Cleaning for re-runs (Prevent Stacking)
     # 1. Strip previous H1 + Author
-    body = re.sub(r'^#\s+.*?\n+\s*-\s*作者：.*?\n+', '', rewritten_raw, flags=re.DOTALL | re.MULTILINE)
+    body = re.sub(r'^#\s+.*?\n+\s*-\s*作者：.*?\n+', '', body, flags=re.DOTALL | re.MULTILINE)
 
     # 2. Strip any leading images (Original Cover Displacement)
     # If the body starts with an image before any H2, we strip it to make room for our styled cover

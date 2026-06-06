@@ -139,8 +139,9 @@ def build_rewriting_prompt(source_text, thoughts="", type_selection="trend", sty
      - **插入格式**：若符合上述条件，请在被插图的复杂逻辑段落后独占一行插入：`[AI_GEN_IMG: 类型 | 核心逻辑提炼 | 关键事实数据 | 标注标签]`。类型可选：对比、因果、过程、并列、层级。
 4. **Layout 规范**：
    - {title_instruction}
-   - 标题下方紧跟一行 `- 作者：{institute_name}`。
-   - 严禁输出任何 YAML Frontmatter。
+   - 标题下方紧跟一行 `- 作者：{institute_name}`.
+   - 严禁输出 any YAML Frontmatter.
+5. **绝对禁止照抄或包含翻译稿原文**：你只需输出你重构、解读后的中文文章，**绝对不要在你的输出中包含、保留、照抄翻译稿原文的全文或任何大段的翻译正文**。直接输出解读正文，不要有任何过渡性引用原文的动作。
 
 {narrative_section}
 

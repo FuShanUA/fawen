@@ -992,7 +992,55 @@ Rules:
     
     raise Exception("Both Gemini models failed for PDF OCR.")
 
-def extract_from_file(filepath):
+def extract_pdf_with_pymupdf(filepath, assets_dir=None, md_img_prefix=""):
+    import fitz
+    import hashlib
+    import os
+    
+    doc = fitz.open(filepath)
+    pages_content = []
+    
+    for page_idx, page in enumerate(doc):
+        text = page.get_text() or ""
+        
+        img_tags = []
+        if assets_dir:
+            os.makedirs(assets_dir, exist_ok=True)
+            image_list = page.get_images(full=True)
+            for img_idx, img_info in enumerate(image_list):
+                xref = img_info[0]
+                try:
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    image_ext = base_image["ext"]
+                    
+                    width = base_image.get("width", 0)
+                    height = base_image.get("height", 0)
+                    if len(image_bytes) < 2048 or width < 30 or height < 30:
+                        continue
+                        
+                    img_hash = hashlib.md5(image_bytes).hexdigest()[:10]
+                    img_name = f"pdf_p{page_idx+1}_img_{img_hash}.{image_ext}"
+                    img_path = os.path.join(assets_dir, img_name)
+                    
+                    if not os.path.exists(img_path):
+                        with open(img_path, "wb") as f:
+                            f.write(image_bytes)
+                            
+                    img_tags.append(f"![Image]({md_img_prefix}{img_name})")
+                    print(f"Crawler Agent: Extracted PDF page {page_idx+1} image -> {img_name}")
+                except Exception as img_err:
+                    print(f"[WARN] Failed to extract image at page {page_idx+1}, xref {xref}: {img_err}")
+                    
+        page_text = text.strip()
+        if img_tags:
+            page_text += "\n\n" + "\n\n".join(img_tags)
+        pages_content.append(page_text)
+        
+    doc.close()
+    return "\n\n".join(pages_content)
+
+def extract_from_file(filepath, assets_dir=None, md_img_prefix=""):
     """Extract content from local file."""
     ext = os.path.splitext(filepath)[1].lower()
     filename = os.path.basename(filepath)
@@ -1002,20 +1050,26 @@ def extract_from_file(filepath):
 
     if ext == '.pdf':
         pdf_error = None
+        # Try PyMuPDF (fitz) first
         try:
-            import pdfplumber
-            with pdfplumber.open(filepath) as pdf:
-                content = "\n\n".join([p.extract_text() or "" for p in pdf.pages])
-        except Exception as e:
-            pdf_error = str(e)
+            content = extract_pdf_with_pymupdf(filepath, assets_dir, md_img_prefix)
+        except Exception as pymupdf_err:
+            pdf_error = str(pymupdf_err)
             try:
-                from pypdf import PdfReader
-                reader = PdfReader(filepath)
-                content = "\n\n".join([page.extract_text() or "" for page in reader.pages])
-                pdf_error = None  # pypdf succeeded
-            except Exception as e2:
-                content = ""
-                print(f"Crawler Agent: PDF extraction error: {pdf_error} | {e2}")
+                import pdfplumber
+                with pdfplumber.open(filepath) as pdf:
+                    content = "\n\n".join([p.extract_text() or "" for p in pdf.pages])
+                pdf_error = None
+            except Exception as e:
+                pdf_error = f"{pdf_error} | pdfplumber: {e}"
+                try:
+                    from pypdf import PdfReader
+                    reader = PdfReader(filepath)
+                    content = "\n\n".join([page.extract_text() or "" for page in reader.pages])
+                    pdf_error = None
+                except Exception as e2:
+                    content = ""
+                    print(f"Crawler Agent: PDF extraction error: {pdf_error} | {e2}")
 
         if not content.strip() or len(content.strip()) < 100:
             print("Crawler Agent: PDF content extracted by standard libraries is empty or too short. Trying OCR fallback...")
@@ -1154,6 +1208,20 @@ def refine_extracted_content(metadata, body, model_name="gemini-3.1-pro-preview"
 
     print("Crawler Agent: Identifying core metadata targets...")
     current_date = metadata.get("publish_date", datetime.now().strftime('%Y-%m-%d'))
+    raw_url = metadata.get('url', '')
+    
+    # URL localization for local PDFs/files
+    is_local_file = False
+    if raw_url:
+        if raw_url.startswith(('/', '\\', 'file://')) or os.path.isabs(raw_url) or any(raw_url.lower().endswith(ext) for ext in ['.pdf', '.html', '.docx', '.txt', '.md']):
+            is_local_file = True
+
+    if is_local_file:
+        url_instruction = f"""- **url**: The original article URL where this document was originally published.
+          - **CRITICAL**: The input document is a local file ('{raw_url}'). You MUST search the extracted text for the original publication link (an HTTP/HTTPS URL, e.g. pointing to a blog post, publication, or official site). Use that URL for this field. Do NOT output a local file path!
+          - If absolutely no original URL is found, try to use the publisher's main website (e.g. 'https://blog.palantir.com/' if it is a Palantir blog, or similar) or fallback to the input file path if not even a domain can be identified."""
+    else:
+        url_instruction = f"""- **url**: {raw_url}"""
 
     client = get_client()
     prompt = f"""
@@ -1171,7 +1239,9 @@ def refine_extracted_content(metadata, body, model_name="gemini-3.1-pro-preview"
        - **MANDATORY**: Exclude ONLY Publication or Column introductions (e.g. "About Metadata Weekly", "About this column", "栏目介绍").
        - **Exclude Hashtags**: Strip hashtags like #AI, #Tech if they appear at the end or as navigation noise.
        - **Exclude Navigation**: Remove "Next post", "Prev post", etc.
-       - **PRESERVE IMAGES (CRITICAL)**: Keep ALL `![alt](path)` image tags exactly as-is. Do NOT remove, shorten, or alter any image markdown tags.
+       - **PRESERVE AND PLACE IMAGES (CRITICAL)**: Keep ALL image markdown tags like `![Image](path)` or `![alt](path)`.
+         - DO NOT remove, shorten, or alter any image markdown tags.
+         - **IMAGE PLACEMENT**: The input text might have all images appended at the end of pages. You MUST relocate these images to their logically correct positions within the article body (e.g., immediately after the paragraph that describes the image, or between logical sections). Do NOT leave them bunched up.
     5. **IMPORTANT - NO HALLUCINATION**:
        - **author**: The person's name (no prefixes). Look for "By [Name]", "Written by [Name]", or "作者：[Name]". If not found in body or raw input, use "Unknown". **DO NOT INVENT**.
        - **source**: The agency/entity (e.g., Palantir, Gartner, AWS).
@@ -1181,7 +1251,7 @@ def refine_extracted_content(metadata, body, model_name="gemini-3.1-pro-preview"
          - **SEARCH THE BODY** for bylines like "April 2, 2026", "on 02 APR 2026", or "发布日期：2026-04-02".
          - Check strings like "date published", "datepublished", "Published on".
          - If NOT found and NOT in raw input, use '{current_date}'. **DO NOT INVENT** a different past date.
-       - **url**: {metadata.get('url', '')}
+       {url_instruction}
 
     ### YAML STRUCTURE (MANDATORY FORMAT):
     ---
@@ -1256,18 +1326,6 @@ def download_image(url, assets_dir):
         return None
 
 def run(target_input, output_file=None, skip_refine=False, model_name="gemini-3.1-flash-preview"):
-    if os.path.exists(target_input):
-        metadata, body = extract_from_file(target_input)
-    elif target_input.startswith("http"):
-        result = extract_from_url(target_input, model_name=model_name)
-        if isinstance(result, str):
-            print(result)
-            sys.exit(1)
-        metadata, body = result
-    else:
-        print("Error: Target not found and not a valid URL")
-        sys.exit(1)
-
     # --- Resolve assets_dir EARLY (needed for pre-localize before AI refine) ---
     import urllib.parse, shutil
     if output_file:
@@ -1284,6 +1342,18 @@ def run(target_input, output_file=None, skip_refine=False, model_name="gemini-3.
         md_img_prefix = "assets/original/"
 
     os.makedirs(assets_dir, exist_ok=True)
+
+    if os.path.exists(target_input):
+        metadata, body = extract_from_file(target_input, assets_dir=assets_dir, md_img_prefix=md_img_prefix)
+    elif target_input.startswith("http"):
+        result = extract_from_url(target_input, model_name=model_name)
+        if isinstance(result, str):
+            print(result)
+            sys.exit(1)
+        metadata, body = result
+    else:
+        print("Error: Target not found and not a valid URL")
+        sys.exit(1)
 
     # [PRE-LOCALIZE] Copy local relative images to assets BEFORE AI refine,
     # so the LLM sees stable ../assets/original/xxx paths and won't strip them.

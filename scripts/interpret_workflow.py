@@ -42,8 +42,8 @@ from common_utils import deterministic_scrub, load_style_guide, extract_clean_bo
 
 # Refined CSS Patch
 CSS_PATCH = """<style>
-    h1, .h1 { display: block !important; font-size: 2.2em; font-weight: 800; color: #1a1a1a; margin-bottom: 0.5em; border-left: 8px solid #FFBF00; padding-left: 15px; line-height: 1.2; }
-    blockquote { border-left: 4px solid #FFBF00 !important; }
+    h1, .h1 { display: block !important; font-size: 2.2em; font-weight: 800; color: #1a1a1a; margin-bottom: 0.5em; line-height: 1.2; }
+    blockquote { border-left: 4px solid #ddd !important; }
     .original-chart { margin: 2.5em auto; text-align: center; max-width: 95%; }
     .original-chart img { max-width: 100%; height: auto; border-radius: 12px; border: 1px solid #eee; }
     .chart-caption { font-size: 0.85em; color: #888; margin-top: 12px; font-weight: 500; letter-spacing: 0.5px; }
@@ -73,7 +73,7 @@ import translator_agent
 import rewriter_agent
 import lead_in_agent
 
-def run_interpret_workflow(input_file, project_root=None, text_style="formal", cover_style="Industrial Amber", info_style="Industrial Amber", type_selection="trend", unslop_domain="中国政企特色数据治理", thoughts="", gen_images=False, model_name="gemini-3-flash-preview", image_model="vertex", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间", author=""):
+def run_interpret_workflow(input_file, project_root=None, text_style="formal", cover_style="Industrial Amber", info_style="Industrial Amber", type_selection="trend", unslop_domain="中国政企特色数据治理", thoughts="", gen_images=False, model_name="gemini-3-flash-preview", image_model="vertex", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author=""):
     if generate_summary is not None:
         summary_mode = "explicit" if generate_summary else "none"
     if summary_mode == "preset":
@@ -157,10 +157,8 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
         except Exception as e:
             print(f"⚠️ Failed to load trans_meta: {e}")
 
-    # Determine default author based on content domain
-    data_governance_keywords = ["数据要素", "数据资产", "数据治理", "DCMM", "数据空间", "数据管理", "数据开发", "数据要素市场"]
-    is_data_gov = any(kw in trans_content for kw in data_governance_keywords)
-    default_author = "AI数据治理研究院" if is_data_gov else "前沿科技智库"
+    # Determine default author (always "数据治理研究院" as signature, no "前沿科技智库" creation)
+    default_author = "数据治理研究院"
 
     # Resolve final author: parameter 'author' -> config 'author' -> trans_meta 'author' -> default_author
     author = author or project_config.get('author') or (trans_meta.get('author') if trans_meta else "") or default_author
@@ -442,18 +440,29 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
             final_content = final_content.replace(old_path, new_path)
             print(f"    ✨ 已替换汉化图: {orig_img} -> {loc_img}")
 
-    # 7.3 Convert Markdown Images to HTML for professional rendering
+    # 7.3 Convert Markdown Images to HTML for professional rendering with robustness check
     def img_replacer(match):
         alt = match.group(1).strip()
         path = match.group(2)
         # Robustly check if it's an asset path
         normalized_path = path.replace('\\', '/')
 
-        # Style BOTH original, localized images and generated infographics
-        if "assets/original" in normalized_path or "assets/localized" in normalized_path or "assets/infographic" in normalized_path:
-            # Skip redundant captions
+        # Style ALL project assets (cover, infographics, original/localized source images)
+        if "assets/" in normalized_path:
+            # [CRITICAL] Final safety check: if the image doesn't exist on disk, comment it out
+            # Path might be relative (../assets/...) or absolute (file:///...)
+            # We try to resolve it relative to the project root
+            clean_rel_path = re.sub(r'^.*?assets/', 'assets/', normalized_path)
+            abs_path = os.path.join(project_root, clean_rel_path)
+
+            if not os.path.exists(abs_path):
+                print(f"  [WARN] Image asset missing on disk: {clean_rel_path}. Commenting out to prevent broken link.")
+                return f"<!-- Asset Missing: {clean_rel_path} -->"
+
+            # Skip redundant captions for decorative/structural images
             caption_html = ""
-            if alt.lower() not in ["image", "img", "chart", "[image]", "图片", "图表", "cover"] and not alt.startswith("Infographic"):
+            is_generic = alt.lower() in ["image", "img", "chart", "[image]", "图片", "图表", "cover"]
+            if not is_generic and not alt.startswith("Infographic") and not alt.startswith("Cover"):
                 caption_html = f'\n  <p class="chart-caption">{alt}</p>'
 
             # Ensure src uses forward slashes
@@ -579,7 +588,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip-summary", action="store_true", help="Skip generating summary ending")
     parser.add_argument("--summary-mode", default="explicit", choices=["explicit", "implicit", "none", "preset", "auto"], help="Summary generation mode")
     parser.add_argument("--summary-prompt", default="", help="Prompt for preset summary mode")
-    parser.add_argument("--narrative-theme", default="数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间", help="Narrative/business theme keywords")
+    parser.add_argument("--narrative-theme", default="", help="Narrative/business theme keywords")
     parser.add_argument("--author", default="", help="Author signature override")
     parser.add_argument("--internal-run", action="store_true", help=argparse.SUPPRESS)
 

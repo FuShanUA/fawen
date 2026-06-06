@@ -91,7 +91,6 @@ class ProfessionalAssembler:
 
     /* 正文样式加固 */
     h1, h2, h3 { color: var(--primary-color); margin-top: 1.5em; }
-    h1 { border-left: 8px solid var(--primary-color); padding-left: 15px; }
 
     /* 屏蔽 baoyu 工具自动生成的 YAML 表格 (我们在 Header 中手动处理) */
     table:first-of-type { display: none; }
@@ -109,7 +108,7 @@ class ProfessionalAssembler:
         margin: 25px 0;
         padding: 15px 25px;
         background-color: #f9f9f9;
-        border-left: 5px solid var(--accent-color) !important;
+        border-left: 4px solid #ddd !important;
         font-style: italic;
     }
 
@@ -180,7 +179,7 @@ class ProfessionalAssembler:
 
         meta_items = []
         if author and author.lower() != 'none':
-            meta_items.append(f'<span class="meta-item"><b>作者：</b>{author}</span>')
+            meta_items.append(f'<span class="meta-item"><b>译者：</b>{author}</span>')
         if source:
             meta_items.append(f'<span class="meta-item"><b>出处：</b>{source}</span>')
         if date:

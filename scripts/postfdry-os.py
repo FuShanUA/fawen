@@ -364,7 +364,7 @@ class OnboardingAssistant:
         from llm_utils import get_client
         client = get_client()
 
-        theme = self.narrative_theme if self.narrative_theme is not None else "数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间"
+        theme = self.narrative_theme if self.narrative_theme is not None else ""
         if not theme or theme == "无特定主题":
             narrative_section = "本次解读没有特定的业务主题限制，请总编辑完全根据文章本身的内容、技术痛点和行业价值进行解读推荐。"
         else:
@@ -722,7 +722,7 @@ if __name__ == "__main__":
     parser.add_argument("--skip-summary", action="store_true", help="Skip generating summary ending")
     parser.add_argument("--summary-mode", default="explicit", choices=["explicit", "implicit", "none", "preset", "auto"], help="Summary generation mode")
     parser.add_argument("--summary-prompt", default="", help="Prompt for preset summary mode")
-    parser.add_argument("--narrative-theme", default="数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间", help="Narrative/business theme keywords")
+    parser.add_argument("--narrative-theme", default="", help="Narrative/business theme keywords")
     parser.add_argument("--image-model", help="Image generation model/engine override")
     parser.add_argument("--target-title", help="Forced target title override")
     parser.add_argument("--catchy-title", help="Forced catchy title override for interpretation")
@@ -822,7 +822,7 @@ if __name__ == "__main__":
         elif summary_mode == "auto":
             summary_mode = "implicit"
         summary_prompt = history.get('summary_prompt', '')
-        narrative_theme = history.get('narrative_theme', "数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间")
+        narrative_theme = history.get('narrative_theme', "")
         if narrative_theme == "无特定主题":
             narrative_theme = ""
         author = args.author or history.get('author') or ""
@@ -877,6 +877,9 @@ if __name__ == "__main__":
     else:
         # Full Onboarding Flow (Cold Start)
         materialized_source = pm.materialize_source(model_name=selected_model)
+        narrative_theme = args.narrative_theme
+        if narrative_theme == "无特定主题":
+            narrative_theme = ""
 
         # 3. AI Onboarding (Recommendations)
         assistant = OnboardingAssistant(materialized_source, model_name=selected_model, narrative_theme=args.narrative_theme)
@@ -928,6 +931,7 @@ if __name__ == "__main__":
         'summary_prompt': summary_prompt,
         'gen_summary': summary_mode != "none",
         'author': author,
+        'narrative_theme': narrative_theme,
         'last_run': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
@@ -975,7 +979,7 @@ if __name__ == "__main__":
             cmd.extend(["--summary-mode", summary_mode])
             if summary_mode in ["explicit", "implicit"] and summary_prompt:
                 cmd.extend(["--summary-prompt", summary_prompt])
-            if narrative_theme:
+            if narrative_theme is not None:
                 cmd.extend(["--narrative-theme", narrative_theme])
             if author:
                 cmd.extend(["--author", author])

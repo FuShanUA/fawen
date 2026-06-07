@@ -281,9 +281,9 @@ class ProjectManager:
                             new_title_clean = new_clean
                             old_title_clean = re.sub(r'[^a-zA-Z0-9]', '', existing_eng_title).lower()
                             if new_title_clean != old_title_clean:
-                                print(f"⚠️  [Smart Check] 检测到已有源文件元数据英文标题 '{existing_eng_title}' 与当前期望标题 '{self.expected_eng_title}' 不匹配！正在清空项目目录进行重新初始化...")
-                                # Delete folders and config
-                                for path in [self.source_dir, self.wip_dir, self.output_dir, self.assets_dir]:
+                                print(f"⚠️  [Smart Check] 检测到已有源文件元数据英文标题 '{existing_eng_title}' 与当前期望标题 '{self.expected_eng_title}' 不匹配！正在清空项目临时目录进行重新初始化...")
+                                # Delete only temporary folders and config (preserve output and assets)
+                                for path in [self.source_dir, self.wip_dir]:
                                     if os.path.exists(path):
                                         shutil.rmtree(path, ignore_errors=True)
                                 if os.path.exists(self.config_path):

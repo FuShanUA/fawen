@@ -44,8 +44,10 @@ def run_isomorphic_localization(image_path, project_root, model_name="gemini-3.1
 
     print(f"  [Localizer] Processing: {image_base} -> {target_name}...")
 
-    # Load prompts from central Infographic Localizer skill
-    prompts_dir = Path(r"/Users/shanfu/cc/.agents/skills/Infographic_Localizer/prompts")
+    # Load prompts from local agents/prompts directory or fallback to central skill
+    prompts_dir = Path(os.path.dirname(os.path.abspath(__file__))) / "prompts"
+    if not prompts_dir.exists():
+        prompts_dir = Path(r"/Users/shanfu/cc/.agents/skills/Infographic_Localizer/prompts")
     prompts = {}
     for node in ["node1_audit", "node2_localize", "node3_reconstruct"]:
         p_file = prompts_dir / f"{node}.txt"

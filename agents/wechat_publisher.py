@@ -6,15 +6,27 @@ import os
 import subprocess
 import re
 
-BAOYU_MD_TO_HTML = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-markdown-to-html/scripts/main.ts"
+from common_utils import resolve_tool_path
 
 def generate_wechat_assets(md_path):
     abs_md_path = os.path.abspath(md_path)
     cwd = os.path.dirname(abs_md_path)
 
+    # Dynamically resolve baoyu-markdown-to-html tool path
+    baoyu_dir = resolve_tool_path("baoyu-markdown-to-html")
+    if baoyu_dir and os.path.exists(os.path.join(baoyu_dir, "scripts", "main.ts")):
+        baoyu_main_ts = os.path.join(baoyu_dir, "scripts", "main.ts")
+    else:
+        # Fallback to local sibling or hardcoded default
+        fallback_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "baoyu-skills", "skills", "baoyu-markdown-to-html"))
+        if os.path.exists(os.path.join(fallback_dir, "scripts", "main.ts")):
+            baoyu_main_ts = os.path.join(fallback_dir, "scripts", "main.ts")
+        else:
+            baoyu_main_ts = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-markdown-to-html/scripts/main.ts"
+
     base_name = os.path.basename(abs_md_path).replace(".md", "")
     tmp_out = os.path.join(cwd, f"{base_name}_pub_log.txt")
-    cmd = f'npx -y bun "{BAOYU_MD_TO_HTML}" "{abs_md_path}" --theme default --keep-title > "{tmp_out}" 2>&1'
+    cmd = f'npx -y bun "{baoyu_main_ts}" "{abs_md_path}" --theme default --keep-title > "{tmp_out}" 2>&1'
     print(f"Executing: {cmd}")
     subprocess.run(cmd, shell=True, cwd=cwd)
 

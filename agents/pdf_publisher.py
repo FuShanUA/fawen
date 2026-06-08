@@ -62,7 +62,7 @@ def build_cover_html(metadata):
 
     # Decoupled cover elements
     header_text = metadata.get('cover_header', '数据管理前沿资料译介')
-    logo_path = metadata.get('cover_logo', r"/Users/shanfu/cc/Inbox/assets/电子联合会logo.png")
+    logo_path = metadata.get('cover_logo', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "logo.png"))
 
     # Split titles if they contain colons
     cn_main, cn_sub = title, ''
@@ -122,7 +122,7 @@ def render_cover_overlay(template_path, output_path, metadata):
     import os
 
     # 1. Load config
-    config_path = r"/Users/shanfu/cc/Library/Tools/postfdry/config/styler_federation.json"
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "styler_federation.json")
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)

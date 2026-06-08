@@ -18,8 +18,7 @@ try:
 except ImportError:
     MetadataEngine = None
 
-# --- Configuration Constants ---
-STYLE_CONFIG_PATH = r"/Users/shanfu/cc/Library/Tools/postfdry/config/styler_federation.json"
+STYLE_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "styler_federation.json")
 
 DEFAULT_STYLE = {
     "cover_cn_font": "SourceHanSansCN-Bold",

@@ -18,8 +18,8 @@ import re
 import subprocess
 import shutil
 # Add paths for common tools
-COMMON_TOOLS_DIR = r"/Users/shanfu/cc/Library/Tools/common"
-if COMMON_TOOLS_DIR not in sys.path:
+COMMON_TOOLS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "common"))
+if os.path.exists(COMMON_TOOLS_DIR) and COMMON_TOOLS_DIR not in sys.path:
     sys.path.append(COMMON_TOOLS_DIR)
 
 # Import AI utils from common
@@ -244,8 +244,9 @@ class EditorHandler(http.server.SimpleHTTPRequestHandler):
 
             # DISTILLATION TRIGGER
             try:
-                # Use generate_diff_draft.py from translation-distiller
-                distill_dir = r"/Users/shanfu/cc/Library/Tools/translation-distiller"
+                distill_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "translation-distiller"))
+                if not os.path.exists(distill_dir):
+                    distill_dir = r"/Users/shanfu/cc/Library/Tools/translation-distiller"
                 diff_script = os.path.join(distill_dir, "generate_diff_draft.py")
 
                 if os.path.exists(diff_script):

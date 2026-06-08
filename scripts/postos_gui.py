@@ -1597,7 +1597,14 @@ class PostOSGUI:
             self.log_text.config(state="disabled")
 
         # Prepare background command line arguments
-        venv_python = "/Users/shanfu/cc/.venv/bin/python"
+        # Determine Python interpreter dynamically (reuse same env as GUI runner)
+        venv_python = sys.executable
+        if not os.path.exists(venv_python) or ".venv" not in venv_python:
+            local_venv = os.path.join(POSTFDRY_ROOT, ".venv", "Scripts", "python.exe") if sys.platform == "win32" else os.path.join(POSTFDRY_ROOT, ".venv", "bin", "python")
+            if os.path.exists(local_venv):
+                venv_python = local_venv
+            else:
+                venv_python = "/Users/shanfu/cc/.venv/bin/python"
         dispatch_script = os.path.join(POSTFDRY_ROOT, "scripts", "postfdry-os.py")
 
         img_vendor_id = self.image_vendor_map.get(self.image_vendor_var.get(), "vertex")
@@ -1694,7 +1701,14 @@ class PostOSGUI:
                     # Auto sync to WeChat if enabled
                     if self.wechat_sync_enabled_var.get():
                         try:
-                            base_dir = "/Users/shanfu/cc/Projects"
+                            local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
+                            rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "Projects"))
+                            if os.path.exists(rel_projects):
+                                base_dir = rel_projects
+                            elif os.path.exists(local_projects_dir):
+                                base_dir = local_projects_dir
+                            else:
+                                base_dir = "/Users/shanfu/cc/Projects"
                             if os.path.exists(base_dir):
                                 subdirs = [os.path.join(base_dir, d) for d in os.listdir(base_dir)]
                                 subdirs = [d for d in subdirs if os.path.isdir(d)]
@@ -1847,7 +1861,14 @@ class PostOSGUI:
 
     def open_finished_product(self):
         try:
-            base_dir = "/Users/shanfu/cc/Projects"
+            local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
+            rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "Projects"))
+            if os.path.exists(rel_projects):
+                base_dir = rel_projects
+            elif os.path.exists(local_projects_dir):
+                base_dir = local_projects_dir
+            else:
+                base_dir = "/Users/shanfu/cc/Projects"
             if not os.path.exists(base_dir):
                 return
             
@@ -1888,7 +1909,7 @@ class PostOSGUI:
         return app_id, app_secret
 
     def save_wechat_credentials(self, app_id, app_secret):
-        env_dir = "/Users/shanfu/cc/.baoyu-skills"
+        env_dir = os.path.expanduser("~/.baoyu-skills")
         env_path = os.path.join(env_dir, ".env")
         try:
             os.makedirs(env_dir, exist_ok=True)
@@ -2008,7 +2029,11 @@ class PostOSGUI:
             if wechat_skill_dir and os.path.exists(wechat_skill_dir):
                 engine_script = os.path.join(wechat_skill_dir, "scripts", "wechat-api.ts")
             else:
-                engine_script = "/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-post-to-wechat/scripts/wechat-api.ts"
+                fallback_dir = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "baoyu-skills", "skills", "baoyu-post-to-wechat"))
+                if os.path.exists(fallback_dir):
+                    engine_script = os.path.join(fallback_dir, "scripts", "wechat-api.ts")
+                else:
+                    engine_script = "/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-post-to-wechat/scripts/wechat-api.ts"
             
             cmd = ["npx", "-y", "bun", engine_script, file_path, "--theme", theme, "--author", author]
             if alias and alias != "default":
@@ -2022,7 +2047,9 @@ class PostOSGUI:
             env["WECHAT_APP_ID"] = self.wechat_appid_var.get().strip()
             env["WECHAT_APP_SECRET"] = self.wechat_secret_var.get().strip()
             
-            cwd = "/Users/shanfu/cc"
+            cwd = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", ".."))
+            if not os.path.exists(cwd):
+                cwd = "/Users/shanfu/cc"
             
             # 开启 stop_btn 并禁用 start_btn 以指示正在进行后台发布
             self.root.after(0, lambda: self.stop_btn.config(state="normal"))

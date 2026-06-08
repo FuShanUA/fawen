@@ -16,14 +16,21 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Try to load keys from .env if present
 def get_env_path():
+    # Dynamic resolution based on file structure
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    postfdry_root = os.path.dirname(current_dir)
+    library_dir = os.path.abspath(os.path.join(postfdry_root, "..", ".."))
+    cc_dir = os.path.abspath(os.path.join(library_dir, ".."))
+
     # Return the primary GUI-managed env file first
-    p = r"/Users/shanfu/cc/Library/.env"
+    p = os.path.join(library_dir, ".env")
     if os.path.exists(p): return p
     
     # Global/Project .env files first
     potentials = [
-        r"/Users/shanfu/cc/.env",
-        r"/Users/shanfu/cc/.baoyu-skills/.env"
+        os.path.join(cc_dir, ".env"),
+        os.path.join(cc_dir, ".baoyu-skills", ".env"),
+        os.path.join(postfdry_root, ".env")
     ]
     for p in potentials:
         if os.path.exists(p): return p
@@ -48,10 +55,15 @@ ENV_PATH = get_env_path()
 try:
     from dotenv import load_dotenv  # type: ignore
     # Load all potential env files in cascade order (earlier ones are overridden by later ones)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    postfdry_root = os.path.dirname(current_dir)
+    library_dir = os.path.abspath(os.path.join(postfdry_root, "..", ".."))
+    cc_dir = os.path.abspath(os.path.join(library_dir, ".."))
     for p in [
-        r"/Users/shanfu/cc/.baoyu-skills/.env",
-        r"/Users/shanfu/cc/.env",
-        r"/Users/shanfu/cc/Library/.env"
+        os.path.join(cc_dir, ".baoyu-skills", ".env"),
+        os.path.join(cc_dir, ".env"),
+        os.path.join(library_dir, ".env"),
+        os.path.join(postfdry_root, ".env")
     ]:
         if os.path.exists(p):
             load_dotenv(p, override=True)
@@ -105,7 +117,7 @@ class LLMClient:
         }
 
         # Apply default gcloud application default credentials path if not specified
-        adc_path = "/Users/shanfu/.config/gcloud/application_default_credentials.json"
+        adc_path = os.path.expanduser("~/.config/gcloud/application_default_credentials.json")
         if not self.api_keys[LLMProvider.VERTEX] and os.path.exists(adc_path):
             self.api_keys[LLMProvider.VERTEX] = adc_path
 
@@ -125,10 +137,15 @@ class LLMClient:
         # Read .env sequentially to establish cascade order
         self.ordered_configs = []
         # Multi-env cascade loading: earlier ones are overwritten by later ones
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        postfdry_root = os.path.dirname(current_dir)
+        library_dir = os.path.abspath(os.path.join(postfdry_root, "..", ".."))
+        cc_dir = os.path.abspath(os.path.join(library_dir, ".."))
         env_cascade = [
-            r"/Users/shanfu/cc/.baoyu-skills/.env",
-            r"/Users/shanfu/cc/.env",
-            r"/Users/shanfu/cc/Library/.env"
+            os.path.join(cc_dir, ".baoyu-skills", ".env"),
+            os.path.join(cc_dir, ".env"),
+            os.path.join(library_dir, ".env"),
+            os.path.join(postfdry_root, ".env")
         ]
         parsed_keys = {}
         for p in env_cascade:
@@ -365,8 +382,8 @@ class LLMClient:
                     for part in candidate.content.parts:
                         if hasattr(part, 'inline_data') and part.inline_data:
                             if "image" in part.inline_data.mime_type:
-                                temp_path = os.path.join(r"/Users/shanfu/cc/tmp", f"gemini_out_{int(time.time()*1000)}.png")
-                                if not os.path.exists(r"/Users/shanfu/cc/tmp"): os.makedirs(r"/Users/shanfu/cc/tmp")
+                                import tempfile
+                                temp_path = os.path.join(tempfile.gettempdir(), f"gemini_out_{int(time.time()*1000)}.png")
                                 with open(temp_path, "wb") as f:
                                     f.write(part.inline_data.data)
                                 return temp_path
@@ -428,8 +445,8 @@ class LLMClient:
                 for part in candidate.content.parts:
                     if hasattr(part, 'inline_data') and part.inline_data:
                         if "image" in part.inline_data.mime_type:
-                            temp_path = os.path.join(r"/Users/shanfu/cc/tmp", f"vertex_out_{int(time.time()*1000)}.png")
-                            if not os.path.exists(r"/Users/shanfu/cc/tmp"): os.makedirs(r"/Users/shanfu/cc/tmp")
+                            import tempfile
+                            temp_path = os.path.join(tempfile.gettempdir(), f"vertex_out_{int(time.time()*1000)}.png")
                             with open(temp_path, "wb") as f:
                                     f.write(part.inline_data.data)
                             return temp_path

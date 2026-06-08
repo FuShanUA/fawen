@@ -170,10 +170,17 @@ class ProjectManager:
             self.expected_eng_title = title
 
         # 2. Setup Directories (dynamic base projects dir)
-        if "PostOS_2.0_Standalone" in POSTFDRY_ROOT:
-            base_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
+        local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
+        rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "Projects"))
+        if os.path.exists(rel_projects):
+            base_projects_dir = rel_projects
+        elif os.path.exists(local_projects_dir) or "PostOS_2.0_Standalone" in POSTFDRY_ROOT:
+            base_projects_dir = local_projects_dir
         else:
-            base_projects_dir = r"/Users/shanfu/cc/Projects"
+            base_projects_dir = local_projects_dir
+            if not os.path.exists(base_projects_dir):
+                try: os.makedirs(base_projects_dir)
+                except: base_projects_dir = r"/Users/shanfu/cc/Projects"
 
         # Check if we are already in an existing project structure
         input_abs = os.path.abspath(self.input_path)

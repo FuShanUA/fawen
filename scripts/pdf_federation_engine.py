@@ -199,27 +199,6 @@ def _mask_placeholders(page):
     page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
     page.clean_contents()
 
-def _subset_font(font_path, text, output_path):
-    try:
-        from fontTools.ttLib import TTFont, TTCollection
-        from fontTools.subset import Subsetter, Options
-        try:
-            collection = TTCollection(font_path)
-            font = collection[0]
-        except Exception:
-            font = TTFont(font_path)
-        options = Options()
-        options.retain_gids = True
-        subsetter = Subsetter(options=options)
-        subsetter.populate(text=text)
-        subsetter.subset(font)
-        font.save(output_path)
-        font.close()
-        return True
-    except Exception as e:
-        print(f"Font subsetting failed for {font_path}: {e}")
-        return False
-
 def customize_cover(template_path, output_path, metadata):
     if not os.path.exists(template_path):
         return template_path
@@ -227,6 +206,10 @@ def customize_cover(template_path, output_path, metadata):
     style = _load_style()
     cn_font = _find_font(style["cover_cn_font"])
     en_font = _find_font(style["cover_en_font"])
+
+    src_doc = fitz.open(template_path)
+    src_page = src_doc[0]
+    _mask_placeholders(src_page)
 
     title = _clean_meta_value(metadata.get('title', 'Untitled'))
     cn_main = title
@@ -267,37 +250,6 @@ def customize_cover(template_path, output_path, metadata):
     source_text = f"作者/机构： {publisher_text}"
     date_text = f"发布时间： {date}"
 
-    # Subset the fonts to keep the PDF size minimal
-    cn_font_temp = None
-    en_font_temp = None
-    extra_chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ年月日：:.,-/()[]{}《》–—_ "
-    
-    if cn_font:
-        cn_font_temp = output_path + "_cn_subset.otf"
-        cn_text = cn_main + source_text + date_text + extra_chars
-        if _subset_font(cn_font, cn_text, cn_font_temp):
-            cn_font_to_use = cn_font_temp
-        else:
-            cn_font_to_use = cn_font
-            cn_font_temp = None
-    else:
-        cn_font_to_use = None
-
-    if en_font:
-        en_font_temp = output_path + "_en_subset.otf"
-        en_text = (eng_title or "") + extra_chars
-        if _subset_font(en_font, en_text, en_font_temp):
-            en_font_to_use = en_font_temp
-        else:
-            en_font_to_use = en_font
-            en_font_temp = None
-    else:
-        en_font_to_use = None
-
-    src_doc = fitz.open(template_path)
-    src_page = src_doc[0]
-    _mask_placeholders(src_page)
-
     t_style = style["title"]
     p_style = style["publisher"]
     d_style = style["date"]
@@ -305,8 +257,8 @@ def customize_cover(template_path, output_path, metadata):
     align = align_map.get(t_style["align"], fitz.TEXT_ALIGN_RIGHT)
 
     # 【优化】即使没找到指定字体，也通过兜底逻辑确保不使用空值
-    cn_kw = {"fontname": "CNBold", "fontfile": cn_font_to_use} if cn_font_to_use else {"fontname": "china-ss"}
-    en_kw = {"fontname": "ENLight", "fontfile": en_font_to_use} if en_font_to_use else {"fontname": "helv"}
+    cn_kw = {"fontname": "CNBold", "fontfile": cn_font} if cn_font else {"fontname": "china-ss"}
+    en_kw = {"fontname": "ENLight", "fontfile": en_font} if en_font else {"fontname": "helv"}
 
     # 【动态检测】扩大标题盒宽度至页面 2/3 (约 396px)，且优先单行渲染
     # A4 宽约 595.27
@@ -339,15 +291,6 @@ def customize_cover(template_path, output_path, metadata):
 
     src_doc.save(output_path, garbage=4, clean=True, deflate=True)
     src_doc.close()
-
-    # Cleanup temp font subsets
-    if cn_font_temp and os.path.exists(cn_font_temp):
-        try: os.remove(cn_font_temp)
-        except: pass
-    if en_font_temp and os.path.exists(en_font_temp):
-        try: os.remove(en_font_temp)
-        except: pass
-
     return output_path
 
 def assemble_federation_pdf(content_pdf_path, output_path, metadata):

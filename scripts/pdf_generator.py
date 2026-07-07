@@ -76,16 +76,22 @@ def generate_pdf(input_path, output_path=None, style="federation", interactive=F
             final_out_dir = out_dir / "output"
             if not final_out_dir.exists(): final_out_dir.mkdir(parents=True, exist_ok=True)
 
-        # 提取规范化文件名前缀: YYYYMMDD_Publisher_Title
-        date_str = meta_engine.get('date', '00000000').replace('-', '').replace('/', '')
-        source_str = meta_engine.get('source', 'Unknown').replace(' ', '_')
-        title_str = meta_engine.get('title', 'Untitled').replace(' ', '_')
+        # 优先使用输入文件的名称 (如果它已经是规范化命名，例如以 8 位数字开头)
+        if re.match(r'^\d{8}_', input_path.name):
+            filename = f"{input_path.stem}.pdf"
+        else:
+            # 提取规范化文件名前缀: YYYYMMDD_Publisher_Title
+            date_str = meta_engine.get('date', '00000000').replace('-', '').replace('/', '')
+            source_str = meta_engine.get('original_author') or meta_engine.get('author') or meta_engine.get('source', 'Unknown')
+            source_str = source_str.replace(' ', '_')
+            title_str = meta_engine.get('title', 'Untitled').replace(' ', '_')
 
-        # 限制长度并移除非法字符
-        safe_source = re.sub(r'[\\/:*?"<>|]', '', source_str)[:20]
-        safe_title = re.sub(r'[\\/:*?"<>|]', '', title_str)[:50]
+            # 限制长度并移除非法字符
+            safe_source = re.sub(r'[\\/:*?"<>|]', '', source_str)[:20]
+            safe_title = re.sub(r'[\\/:*?"<>|]', '', title_str)[:50]
 
-        filename = f"{date_str}_{safe_source}_{safe_title}.pdf"
+            filename = f"{date_str}_{safe_source}_{safe_title}.pdf"
+            
         output_path = get_versioned_path(final_out_dir / filename)
 
     # 4. 如果是标准模式，直接渲染

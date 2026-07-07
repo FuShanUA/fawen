@@ -7,7 +7,7 @@
 "Data Governance": "数据治理" # 严格使用全称
 "Governance Plane": "治理面" # 控制架构术语
 "Data Elements": "数据要素" # 国内政策术语
-"DCMM": "数据管理能力成熟度模型" # 国家标准
+"DCMM": "数据管理能力成熟度模型（这是国家标准贯标认证活动，并非IT系统建设项目，强调数据标准、认责和元数据完备性，属于企业管理与合规评估范畴）"
 "Snowflake": "Snowflake 平台" # 具象化基础设施
 "Databricks": "Databricks 平台"
 "Vector Database": "向量数据库"
@@ -47,7 +47,15 @@
 "John Wernfeldt": "John Wernfeldt"
 "Wernfeldt": "Wernfeldt"
 
+#
 # --- Newly Added (2026-06-03) ---
 "Geedge": "积至"
 "Geedge Networks": "积至"
 
+# --- AI Models & Labs (2026-07-05) ---
+"Claude": "Claude"
+"Anthropic": "Anthropic"
+"OpenAI": "OpenAI"
+"Codex": "Codex"
+"Gemini": "Gemini"
+"GPT": "GPT"

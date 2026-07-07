@@ -1,22 +1,38 @@
 {
-    "input": "https://open.substack.com/pub/peterbaumann/p/extend-your-ai-literacy-in-2026",
+    "input": "https://contextandchaos.substack.com/p/four-arguments-ontologists-never",
     "mode": "both",
     "llm_vendor": "Alibaba (Bailian)",
-    "model": "deepseek-v4-pro",
-    "text_style": "business",
+    "model": "glm-5.2",
+    "text_style": "technical",
     "cover_style": "Industrial Amber",
     "pdf_template": "Federation",
     "article_type": "trend",
     "image_vendor": "Alibaba (Bailian)",
     "image_model": "qwen-image-2.0-pro",
     "localize_images": false,
+    "vision_vendor": "Alibaba (Bailian)",
+    "vision_model": "qwen-vl-max",
     "reuse_translation": false,
     "gen_images": true,
     "pdf_gen": true,
+    "summary_mode": "implicit",
+    "summary_prompt": "",
+    "narrative_themes": {
+        "业务主题2": ""
+    },
+    "selected_narrative_theme": "无特定主题",
     "wechat_sync_enabled": true,
     "wechat_theme": "modern",
     "wechat_author": "AI数据治理研究院",
+    "author_history": [
+        "AI数据治理研究院"
+    ],
     "wechat_account_alias": "default",
-    "vendor_default_models": {},
-    "image_vendor_default_models": {}
+    "vendor_default_models": {
+        "Alibaba (Bailian)": "glm-5.2"
+    },
+    "image_vendor_default_models": {
+        "Alibaba (Bailian)": "qwen-image-2.0-pro"
+    },
+    "interpret_publisher": "AI数据治理研究院"
 }

@@ -171,7 +171,7 @@ class ProjectManager:
 
         # 2. Setup Directories (dynamic base projects dir)
         local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
-        rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "Projects"))
+        rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "..", "Projects"))
         if os.path.exists(rel_projects):
             base_projects_dir = rel_projects
         elif os.path.exists(local_projects_dir) or "PostOS_2.0_Standalone" in POSTFDRY_ROOT:
@@ -333,9 +333,9 @@ class ProjectManager:
                 print(f"🚀 正在抓取并利用 AI 优化原文内容...")
                 crawler_agent.run(self.input_path, output_file=source_file, model_name=model_name)
         else:
-            if os.path.abspath(self.input_path) != os.path.abspath(source_file):
+            if os.path.abspath(self.input_path) != os.path.abspath(source_file) and not os.path.isdir(self.input_path):
                 print(f"📂 正在同步本地文件到项目目录...")
-                shutil.copy2(self.input_path, source_file)
+                shutil.copy(self.input_path, source_file)
                 # Write original_path to source.md frontmatter!
                 try:
                     with open(source_file, "r", encoding="utf-8") as f:
@@ -382,7 +382,12 @@ class OnboardingAssistant:
         """Asks Gemini to analyze the article and recommend mode/style."""
         print(" 🤔 正在利用 AI 分析文章特色并拟定出版建议...")
         with open(self.source_file, 'r', encoding='utf-8') as f:
-            content = f.read()[:10000] # First 10k for analysis
+            full = f.read()
+        # Read first 2000 + last 2000 chars to avoid out-of-context truncation
+        if len(full) > 4000:
+            content = full[:2000] + "\n\n[...中间内容已省略...]\n\n" + full[-2000:]
+        else:
+            content = full
 
         from llm_utils import get_client
         client = get_client()
@@ -747,6 +752,7 @@ if __name__ == "__main__":
     parser.add_argument("--summary-prompt", default="", help="Prompt for preset summary mode")
     parser.add_argument("--narrative-theme", default="", help="Narrative/business theme keywords")
     parser.add_argument("--image-model", help="Image generation model/engine override")
+    parser.add_argument("--vision-model", help="Vision (VLM) model for image localization, format vendor:model")
     parser.add_argument("--target-title", help="Forced target title override")
     parser.add_argument("--catchy-title", help="Forced catchy title override for interpretation")
     parser.add_argument("--author", default="", help="Author signature override")
@@ -864,6 +870,7 @@ if __name__ == "__main__":
         pdf_gen = args.pdf if args.pdf is not None else (mode != "interpret")
         final_model = args.model or "gemini-3-flash-preview"
         image_model = args.image_model or "vertex"
+        vision_model = args.vision_model
         std_title = args.target_title or ""
         cat_title = args.catchy_title or args.target_title or ""
         localize_images = args.localize_images
@@ -975,6 +982,8 @@ if __name__ == "__main__":
             ]
             if localize_images: cmd.append("--localize-images")
             if force_relocalize: cmd.append("--force-relocalize")
+            if vision_model: cmd.extend(["--vision-model", vision_model])
+            if image_model and image_model != "vertex": cmd.extend(["--image-model", image_model])
             if reuse_translation: cmd.append("--reuse-translation")
             if args.non_interactive: cmd.append("--non-interactive")
             if thoughts: cmd.extend(["--thoughts", thoughts])
@@ -982,7 +991,6 @@ if __name__ == "__main__":
             if pdf_gen: cmd.append("--pdf")
             if gen_images:
                 cmd.append("--gen-images")
-                cmd.extend(["--image-model", image_model])
         else:
             wf_script = os.path.join(scripts_dir, "interpret_workflow.py")
             cmd = [
@@ -998,6 +1006,8 @@ if __name__ == "__main__":
                 "--no-spawn"
             ]
             if localize_images: cmd.append("--localize-images")
+            if vision_model: cmd.extend(["--vision-model", vision_model])
+            if image_model and image_model != "vertex": cmd.extend(["--image-model", image_model])
             if args.non_interactive: cmd.append("--non-interactive")
             cmd.extend(["--summary-mode", summary_mode])
             if summary_mode in ["explicit", "implicit"] and summary_prompt:
@@ -1008,7 +1018,6 @@ if __name__ == "__main__":
                 cmd.extend(["--author", author])
             if gen_images:
                 cmd.append("--gen-images")
-                cmd.extend(["--image-model", image_model])
 
         print(f"📍 项目根目录: {project_root}")
         res = subprocess.run(cmd)

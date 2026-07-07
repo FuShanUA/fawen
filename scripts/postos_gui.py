@@ -110,6 +110,24 @@ class PostOSGUI:
             "Replicate": ["black-forest-labs/flux-1.1-pro", "black-forest-labs/flux-dev", "black-forest-labs/flux-schnell", "tencent/hunyuan-image-3"]
         }
 
+        # Vision (VLM) Vendor Models - for image reading in localization
+        self.vision_vendor_map = {
+            "Alibaba (Bailian)": "dashscope",
+            "Google Gemini": "gemini",
+            "Google Vertex AI": "vertex",
+            "OpenAI": "openai",
+            "Zhipu (GLM)": "zhipu",
+            "Moonshot (Kimi)": "moonshot"
+        }
+        self.vision_vendor_models = {
+            "Alibaba (Bailian)": ["qwen-vl-max", "qwen-vl-plus", "qwen2.5-vl-72b-instruct"],
+            "Google Gemini": ["gemini-3.1-pro-preview", "gemini-3.1-flash-preview", "gemini-3-pro-preview"],
+            "Google Vertex AI": ["gemini-3.1-pro-preview", "gemini-3.1-flash-preview"],
+            "OpenAI": ["gpt-4o", "gpt-4o-mini"],
+            "Zhipu (GLM)": ["glm-4v-plus", "glm-4v"],
+            "Moonshot (Kimi)": ["moonshot-v1-8k-vision", "moonshot-v1-32k-vision"]
+        }
+
         # Load Settings
         self.settings_file = os.path.join(POSTFDRY_ROOT, "wip", "gui_settings.json")
         self.settings = self.load_settings()
@@ -143,11 +161,12 @@ class PostOSGUI:
             "auto": "隐式总结"    # Compatibility
         }
 
-        # Translation mappings for Chinese displays
+       # Translation mappings for Chinese displays
         self.task_mode_map = {
             "专业译介": "translate",
             "深度解读": "interpret",
-            "双模式并行": "both"
+            "双模式并行": "both",
+            "汉化插图": "localize_only"
         }
         self.task_mode_rev_map = {v: k for k, v in self.task_mode_map.items()}
 
@@ -270,6 +289,8 @@ class PostOSGUI:
             "image_vendor": "Google Vertex AI",
             "image_model": "gemini-3-pro-image-preview",
             "localize_images": False,
+            "vision_vendor": "Alibaba (Bailian)",
+            "vision_model": "qwen-vl-max",
             "reuse_translation": False,
             "gen_images": False,
             "pdf_gen": True,
@@ -317,6 +338,8 @@ class PostOSGUI:
             "image_vendor": self.image_vendor_var.get(),
             "image_model": self.image_model_var.get(),
             "localize_images": self.localize_images_var.get(),
+            "vision_vendor": self.vision_vendor_var.get() if hasattr(self, 'vision_vendor_var') else self.settings.get("vision_vendor", "Alibaba (Bailian)"),
+            "vision_model": self.vision_model_var.get() if hasattr(self, 'vision_model_var') else self.settings.get("vision_model", "qwen-vl-max"),
             "reuse_translation": self.reuse_translation_var.get(),
             "gen_images": self.gen_images_var.get(),
             "pdf_gen": self.pdf_gen_var.get(),
@@ -607,6 +630,24 @@ class PostOSGUI:
         self.btn_set_text_default = ttk.Button(f_llm, text="设为默认", command=self.set_text_model_default)
         self.btn_set_text_default.grid(row=0, column=4, sticky="w", padx=5)
 
+        # 1b. Vision Model Config Group (for image reading in localization)
+        f_vision = ttk.LabelFrame(self.tab4, text=" 视觉读图模型配置 ", padding=5)
+        f_vision.pack(fill="x", pady=2)
+
+        ttk.Label(f_vision, text="读图厂商:").grid(row=0, column=0, sticky="w", pady=2)
+        self.vision_vendor_var = tk.StringVar(value=self.settings.get("vision_vendor", "Alibaba (Bailian)"))
+        vision_vendors = list(self.vision_vendor_map.keys())
+        self.vision_vendor_combo = ttk.Combobox(f_vision, textvariable=self.vision_vendor_var, values=vision_vendors, width=16, state="readonly")
+        self.vision_vendor_combo.grid(row=0, column=1, sticky="w", padx=5)
+        self.vision_vendor_combo.bind("<<ComboboxSelected>>", self.on_vision_vendor_change)
+
+        ttk.Label(f_vision, text="读图模型:").grid(row=0, column=2, sticky="w", padx=10)
+        self.vision_model_var = tk.StringVar(value=self.settings.get("vision_model", "qwen-vl-max"))
+        saved_vision_vendor = self.settings.get("vision_vendor", "Alibaba (Bailian)")
+        initial_vision_models = self.vision_vendor_models.get(saved_vision_vendor, ["qwen-vl-max"])
+        self.vision_model_combo = ttk.Combobox(f_vision, textvariable=self.vision_model_var, values=initial_vision_models, width=22, state="readonly")
+        self.vision_model_combo.grid(row=0, column=3, sticky="w", padx=5)
+
         # 2. Image Gen Config Group
         f_img = ttk.LabelFrame(self.tab4, text=" 绘图与设计模型配置 ", padding=5)
         f_img.pack(fill="x", pady=2)
@@ -840,6 +881,13 @@ class PostOSGUI:
             self.image_model_combo.config(state="readonly")
             self.on_summary_mode_change()
             self.update_image_fields_state()
+        elif m == "localize_only":
+            self.set_frame_state(self.f_translate, "disabled")
+            self.set_frame_state(self.f_interpret, "disabled")
+            self.image_vendor_combo.config(state="readonly")
+            self.image_model_combo.config(state="readonly")
+            self.vision_vendor_combo.config(state="readonly")
+            self.vision_model_combo.config(state="readonly")
         else: # both
             self.set_frame_state(self.f_translate, "normal")
             self.set_frame_state(self.f_interpret, "normal")
@@ -847,6 +895,10 @@ class PostOSGUI:
             self.image_model_combo.config(state="readonly")
             self.on_summary_mode_change()
             self.update_image_fields_state()
+
+        # Update button text to reflect current mode
+        if self.merged_button_state == "analyze":
+            self.reset_merged_button()
 
     def update_image_fields_state(self):
         m = self.task_mode_map.get(self.mode_var.get(), "both")
@@ -943,7 +995,101 @@ class PostOSGUI:
 
     def reset_merged_button(self):
         self.merged_button_state = "analyze"
-        self.start_btn.config(text="分析并配置流水线 (Analyze & Config)", state="normal")
+        mode = self.task_mode_map.get(self.mode_var.get(), "both")
+        if mode == "localize_only":
+           self.start_btn.config(text="开始汉化", state="normal")
+        else:
+            self.start_btn.config(text="分析并配置流水线", state="normal")
+
+    def start_localize_only(self, target):
+        """Handle localize-only mode: read image paths, run localization, log progress."""
+        # Parse input: could be single image, multiple paths (newline/semicolon separated), or a directory
+        image_exts = ('.png', '.jpg', '.jpeg', '.webp', '.gif')
+        image_paths = []
+        for part in target.replace(';', '\n').split('\n'):
+            part = part.strip()
+            if not part:
+                continue
+            if os.path.isdir(part):
+                for f in sorted(os.listdir(part)):
+                    if f.lower().endswith(image_exts):
+                        image_paths.append(os.path.join(part, f))
+            elif os.path.isfile(part) and part.lower().endswith(image_exts):
+                image_paths.append(part)
+            else:
+                return messagebox.showwarning("提示", f"路径不是有效的图片或目录:\n{part}")
+
+        if not image_paths:
+            return messagebox.showwarning("提示", "未找到可汉化的图片文件。")
+
+        # Determine output directory: localized/ subfolder next to first input
+        first_dir = os.path.dirname(os.path.abspath(image_paths[0]))
+        output_dir = os.path.join(first_dir, "localized")
+
+        # Read model config from GUI
+        vision_model = self.vision_model_var.get()
+        image_model = self.image_model_var.get()
+        image_vendor = self.image_vendor_map.get(self.image_vendor_var.get(), "dashscope")
+        text_model = self.model_var.get()
+
+        # Switch to log tab and clear
+        self.notebook.select(self.tab3)
+        self.log_text.config(state="normal")
+        self.log_text.delete(1.0, tk.END)
+        self.log_text.config(state="disabled")
+        self.start_btn.config(text="正在汉化...", state="disabled")
+        self.status_label.config(text=f"🎨 正在汉化 {len(image_paths)} 张图片...")
+
+        threading.Thread(
+            target=self._localize_only_thread,
+            args=(image_paths, output_dir, vision_model, image_model, image_vendor, text_model),
+            daemon=True
+        ).start()
+
+    def _localize_only_thread(self, image_paths, output_dir, vision_model, image_model, image_vendor, text_model):
+        import localizer_agent
+        total = len(image_paths)
+        self.log(f"🎨 [汉化] 开始处理 {total} 张图片，输出目录: {output_dir}")
+
+        def progress_cb(current, tot, filename, status, result_path):
+            msg_map = {
+                "processing": f"  [{current}/{tot}] 正在处理: {filename}...",
+                "success": f"  [{current}/{tot}] ✅ 完成: {filename}",
+                "failed": f"  [{current}/{tot}] ❌ 失败: {filename}",
+                "skipped": f"  [{current}/{tot}] ♻️ 已有汉化版，跳过: {filename}",
+            }
+            msg = msg_map.get(status, f"  [{current}/{tot}] {status}: {filename}")
+            self.root.after(0, lambda: self.log(msg))
+            if status in ("success", "failed", "skipped"):
+                pct = int(current / tot * 100) if tot > 0 else 100
+                self.root.after(0, lambda: self.status_label.config(
+                    text=f"🎨 汉化进度: {current}/{tot} ({pct}%)"))
+
+        try:
+            results = localizer_agent.run_standalone_localization(
+                image_paths, output_dir,
+                vision_model=vision_model,
+                image_model=image_model,
+                image_vendor=image_vendor,
+                text_model=text_model,
+                max_workers=4,
+                progress_callback=progress_cb,
+                force=True
+            )
+            succeeded = sum(1 for r in results if r.get("output"))
+            self.root.after(0, lambda: self.log(
+                f"\n{'='*50}\n🎨 汉化完成！成功 {succeeded}/{total} 张。"))
+            self.root.after(0, lambda: self.status_label.config(
+                text=f"✅ 汉化完成: {succeeded}/{total} 张成功"))
+
+            # Pop Finder at output directory
+            if os.path.exists(output_dir):
+                subprocess.Popen(["open", output_dir])
+        except Exception as e:
+            self.root.after(0, lambda: self.log(f"❌ 汉化异常: {e}"))
+            self.root.after(0, lambda: self.status_label.config(text=f"❌ 汉化失败: {e}"))
+        finally:
+            self.root.after(0, lambda: self.reset_merged_button())
 
     def load_project_manager(self, target):
         import importlib.util
@@ -1037,6 +1183,7 @@ class PostOSGUI:
         config_data['info_style'] = self.visual_style_map.get(self.cover_style_var.get(), "Industrial Amber")
         config_data['article_type'] = self.article_type_map.get(self.article_type_var.get(), "trend")
         config_data['image_model'] = self.image_model_var.get()
+        config_data['vision_model'] = self.vision_model_var.get()
         config_data['localize_images'] = self.localize_images_var.get()
         config_data['pdf_gen'] = self.pdf_gen_var.get()
         config_data['llm_model'] = self.model_var.get()
@@ -1113,6 +1260,12 @@ class PostOSGUI:
             self.merged_button_state = "analyze"
         self.last_target = target
 
+        # --- LOCALIZE-ONLY MODE: bypass normal pipeline, go straight to image localization ---
+        mode = self.task_mode_map.get(self.mode_var.get(), "both")
+        if mode == "localize_only":
+            self.start_localize_only(target)
+            return
+
         if self.merged_button_state == "analyze":
             try:
                 pm, _, config_path = self.load_project_manager(target)
@@ -1125,6 +1278,7 @@ class PostOSGUI:
                     eng_title = ""
                     author = ""
                     source = ""
+                    date_val = ""
                     std_title = cfg.get('standard_title', '')
                     if os.path.exists(source_md_path):
                         try:
@@ -1284,29 +1438,46 @@ class PostOSGUI:
                 threading.Thread(target=self.merged_onboarding_thread, args=(target,), daemon=True).start()
 
         elif self.merged_button_state == "confirm":
-            self.start_process()
+           self.start_process()
 
     def merged_onboarding_thread(self, target):
         try:
             model = self.model_var.get()
+
             self.log(f"🔄 [AI Onboarding] 正在初始化项目配置，目标: {target}...")
             pm, source_file, config_path = self.load_project_manager(target)
             
+            vendor = self.vendor_var.get()
+            v_id_str = self.vendor_map.get(vendor, "gemini")
+            model_with_vendor = f"{v_id_str}::{model}"
+            
             # Auto-materialize source (crawl if URL)
             self.log(f"🌐 [AI Onboarding] 正在抓取/同步原文文件...")
-            source_file = pm.materialize_source(model_name=model)
+            try:
+                source_file = pm.materialize_source(model_name=model_with_vendor)
+            except PermissionError as e:
+                self.log(f"❌ 权限错误 (Permission Denied)！macOS 可能阻止了读取桌面文件。请将文件移至项目目录或 /tmp 后重试。\n详细信息: {e}")
+                if hasattr(self, 'stop_loading'):
+                    self.root.after(0, self.stop_loading)
+                return
             
             # Fetch AI recommendation
             self.log(f"🤔 [AI Onboarding] 正在调用 AI 剖析文章并拟定建议规划...")
             from postfdry_os import OnboardingAssistant
             curr_theme_text = self.summary_prompt_text.get(1.0, tk.END).strip() if hasattr(self, 'summary_prompt_text') else ""
-            assistant = OnboardingAssistant(source_file, model_name=model, narrative_theme=curr_theme_text)
+            
+            assistant = OnboardingAssistant(source_file, model_name=model_with_vendor, narrative_theme=curr_theme_text)
             rec = assistant.get_recommendation()
             
             self.log(f"📝 [AI Onboarding] 元数据获取成功，正在确认与重构项目规划...")
             # Read metadata safely
-            with open(source_file, 'r', encoding='utf-8') as f:
-                meta = MetadataEngine(f.read())
+            try:
+                with open(source_file, 'r', encoding='utf-8') as f:
+                    meta = MetadataEngine(f.read())
+            except UnicodeDecodeError:
+                self.log(f"⚠️ {source_file} 是二进制文件，无法提取文本元数据，跳过...")
+                meta = MetadataEngine("")
+                rec = {}
 
             # Rename project directory based on crawled title
             target_title = meta.get('title') or meta.get('eng_title')
@@ -1471,7 +1642,11 @@ class PostOSGUI:
             # Use LLM to generate titles
             from llm_utils import get_client
             client = get_client()
-            model_name = self.model_var.get() or "gemini-3-flash-preview"
+            
+            vendor = self.vendor_var.get()
+            v_id_str = self.vendor_map.get(vendor, "gemini")
+            model = self.model_var.get() or "gemini-3-flash-preview"
+            model_name = f"{v_id_str}::{model}"
             
             prompt = f"""
             你是一位顶级的中文科技媒体/咨询报告总编辑。
@@ -1611,16 +1786,27 @@ class PostOSGUI:
         img_model_name = self.image_model_var.get()
         image_model_arg = f"{img_vendor_id}:{img_model_name}"
 
+        vendor = self.vendor_var.get()
+        v_id_str = self.vendor_map.get(vendor, "gemini")
+        model = self.model_var.get()
+        model_with_vendor = f"{v_id_str}::{model}"
+
         cmd = [
             venv_python, "-u", dispatch_script, target,
             "--non-interactive",
             "--mode", self.task_mode_map.get(self.mode_var.get(), "both"),
-            "--model", self.model_var.get(),
+            "--model", model_with_vendor,
             "--text-style", self.text_style_map.get(self.text_style_var.get(), "formal"),
             "--cover-style", self.visual_style_map.get(self.cover_style_var.get(), "Industrial Amber"),
-            "--type", self.article_type_map.get(self.article_type_var.get(), "trend"),
+           "--type", self.article_type_map.get(self.article_type_var.get(), "trend"),
             "--image-model", image_model_arg
         ]
+
+        # Vision model for image localization (non-Gemini text models)
+        vision_vendor_id = self.vision_vendor_map.get(self.vision_vendor_var.get(), "dashscope")
+        vision_model_name = self.vision_model_var.get()
+        if vision_model_name:
+            cmd.extend(["--vision-model", f"{vision_vendor_id}:{vision_model_name}"])
 
         # Metadata overrides
         thoughts = self.thoughts_text.get(1.0, tk.END).strip()
@@ -1702,7 +1888,7 @@ class PostOSGUI:
                     if self.wechat_sync_enabled_var.get():
                         try:
                             local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
-                            rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "Projects"))
+                            rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "..", "Projects"))
                             if os.path.exists(rel_projects):
                                 base_dir = rel_projects
                             elif os.path.exists(local_projects_dir):
@@ -1821,6 +2007,16 @@ class PostOSGUI:
             
         env_key = self.image_vendor_env_keys.get(v_name)
         if env_key:
+           self.update_key_editor(v_name, env_key)
+
+    def on_vision_vendor_change(self, event):
+        v_name = self.vision_vendor_var.get()
+        models = self.vision_vendor_models.get(v_name, ["qwen-vl-max"])
+        self.vision_model_combo.config(values=models)
+        if self.vision_model_var.get() not in models:
+            self.vision_model_var.set(models[0])
+        env_key = self.vendor_env_keys.get(v_name)
+        if env_key:
             self.update_key_editor(v_name, env_key)
 
     def on_vendor_change(self, event):
@@ -1862,7 +2058,7 @@ class PostOSGUI:
     def open_finished_product(self):
         try:
             local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
-            rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "Projects"))
+            rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "..", "Projects"))
             if os.path.exists(rel_projects):
                 base_dir = rel_projects
             elif os.path.exists(local_projects_dir):
@@ -2092,8 +2288,8 @@ class PostOSGUI:
             self.log(f"❌ [WeChat] 微信同步异常: {e}")
 
     def get_project_env_path(self):
-        # Dynamically locate the project root .env file (two levels up from Library/Tools/postfdry/)
-        return os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", ".env"))
+        # Dynamically locate the project root .env file (three levels up from Library/Tools/postfdry/)
+        return os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "..", ".env"))
 
     def load_api_key(self, vendor, env_key=None):
         if not env_key:

@@ -150,6 +150,7 @@ def main():
     parser.add_argument("--assets", default="assets", help="Path to save assets")
     parser.add_argument("--cover-style", default="Industrial Amber", help="Style for cover image")
     parser.add_argument("--info-style", default="Industrial Amber", help="Style for infographics")
+    parser.add_argument("--skip-info", action="store_true", help="Skip infographic generation")
     parser.add_argument("--gen-images", action="store_true", help="Generate actual images via skill CLI")
     parser.add_argument("--model", default="gemini-3-flash-preview", help="LLM model for prompt refinement")
     parser.add_argument("--image-model", default="vertex", help="Image generation model/engine")
@@ -208,16 +209,19 @@ def main():
     inline_markers = re.findall(r'\[AI_GEN_IMG:\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\]', content)
     infographic_tasks = []
     if inline_markers:
-        log_and_print("\n" + "="*40)
-        log_and_print(f"ASSETS: INLINE INFOGRAPHICS (信息图 - 共 {len(inline_markers)} 张) [Style: {args.info_style}]")
-        log_and_print("="*40)
-        for i, (l_type, summary, facts, labels) in enumerate(inline_markers, 1):
-            filename = f"infographic_{i}.png"
-            log_and_print(f"\n--- 图表 {i} ({filename}) ---")
-            info_prompt = generate_infographic_prompt(l_type, summary, facts, labels, args.info_style)
-            log_and_print(info_prompt)
-            log_and_print(f"[SAVE_AS] {project_assets}/{filename}")
-            infographic_tasks.append((filename, info_prompt))
+        if args.skip_info:
+            log_and_print("\n[INFO] 跳过信息图生成 (--skip-info)。")
+        else:
+            log_and_print("\n" + "="*40)
+            log_and_print(f"ASSETS: INLINE INFOGRAPHICS (信息图 - 共 {len(inline_markers)} 张) [Style: {args.info_style}]")
+            log_and_print("="*40)
+            for i, (l_type, summary, facts, labels) in enumerate(inline_markers, 1):
+                filename = f"infographic_{i}.png"
+                log_and_print(f"\n--- 图表 {i} ({filename}) ---")
+                info_prompt = generate_infographic_prompt(l_type, summary, facts, labels, args.info_style)
+                log_and_print(info_prompt)
+                log_and_print(f"[SAVE_AS] {project_assets}/{filename}")
+                infographic_tasks.append((filename, info_prompt))
     else:
         log_and_print("\n[INFO] 未在文中发现 [AI_GEN_IMG] 标记。")
 

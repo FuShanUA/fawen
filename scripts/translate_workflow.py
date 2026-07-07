@@ -105,11 +105,16 @@ class ProfessionalAssembler:
     th { background-color: #f4f4f4; }
 
     blockquote {
-        margin: 25px 0;
-        padding: 15px 25px;
-        background-color: #f9f9f9;
-        border-left: 4px solid #ddd !important;
-        font-style: italic;
+        border-left: none !important;
+        padding: 1.2em 2em !important;
+        margin: 2em 0 !important;
+        background-color: #fbfbf9 !important;
+        border-top: 1px solid #e3e3e0 !important;
+        border-bottom: 1px solid #e3e3e0 !important;
+        font-family: "Source Han Serif", "Noto Serif CJK SC", serif !important;
+        color: #444 !important;
+        font-size: 1.05em !important;
+        line-height: 1.8 !important;
     }
 
     img {
@@ -135,6 +140,8 @@ class ProfessionalAssembler:
         body { padding: 0; font-family: 'Inter', 'STKaiti', '华文楷体', 'SimKai', '楷体', 'Noto Serif SC', serif !important; }
         .article-header { page-break-after: avoid; }
         blockquote { page-break-inside: avoid; }
+        .original-chart { page-break-inside: avoid; text-align: center; margin: 1.5em 0; }
+        .original-chart img { max-width: 100% !important; max-height: 200mm !important; width: auto !important; height: auto !important; display: inline-block !important; margin: 0 auto !important; }
     }
 </style>
 """
@@ -258,7 +265,7 @@ class ProfessionalAssembler:
         return full_html
 
 class TranslationWorkflow:
-    def __init__(self, input_file, project_root=None, cover_style="Federation", model_name="gemini-3-flash-preview", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False):
+    def __init__(self, input_file, project_root=None, cover_style="Federation", model_name="gemini-3-flash-preview", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, image_model=None, vision_model=None):
         self.input_file = Path(input_file)
         self.project_root = Path(project_root) if project_root else self.input_file.parent.parent
         self.output_dir = self.project_root / "output"
@@ -271,6 +278,8 @@ class TranslationWorkflow:
         self.localize_images = localize_images
         self.force_relocalize = force_relocalize
         self.non_interactive = non_interactive
+        self.image_model = image_model
+        self.vision_model = vision_model
         self.interactive = False # Launch interactive styler?
 
         for d in [self.output_dir, self.wip_dir, self.assets_dir]:
@@ -435,12 +444,26 @@ class TranslationWorkflow:
                 # 替换为本地路径
                 body = body.replace(img_url, f"../assets/original/{local_name}")
 
+        # Clean broken link remnants from Substack's [![alt](img)](url) syntax
+        # After image localization, the outer ](url) wrapper becomes orphaned text
+        body = re.sub(r'\n\s*\]\(https?://[^\)]*\)', '', body)
+        # Remove orphaned [ lines (the opener of the broken link wrapper)
+        body = re.sub(r'\n\s*\[\s*\n', '\n', body)
+        # Remove trailing images with empty alt text (Substack boilerplate: subscribe buttons, author cards)
+        body = re.sub(r'(\n\s*!\[\]\([^)]+\)\s*)+$', '', body)
+
         # 2.6 自动视觉汉化 (Infographic Localization) - Only if requested
         localized_map = {}
         if self.localize_images:
             print(f"  [Step 2.6] 正在执行信息图汉化 (Visual Localization)...")
             try:
-                localized_map = localizer_agent.run_batch_localization(str(self.project_root), force=self.force_relocalize)
+                # Parse vendor:model format
+                img_vendor, img_model = (self.image_model.split(":", 1) + [None])[:2] if self.image_model and ":" in self.image_model else (None, self.image_model)
+                vis_vendor, vis_model = (self.vision_model.split(":", 1) + [None])[:2] if self.vision_model and ":" in self.vision_model else (None, self.vision_model)
+                localized_map = localizer_agent.run_batch_localization(
+                    str(self.project_root), force=self.force_relocalize,
+                    model_name=self.model_name, image_model=img_model, image_vendor=img_vendor,
+                    vision_model=vis_model or "qwen-vl-max")
             except Exception as e:
                 print(f"  ⚠️ 视觉汉化失败: {e}")
         else:
@@ -525,13 +548,25 @@ class TranslationWorkflow:
         def img_styler(match):
             tag = match.group(0)
             if 'src="../assets/original' in tag or 'src="../assets/localized' in tag:
+                # 改写内联 width:100% 为受控尺寸，避免超大竖图撑爆 PDF 页面引发整页缩放
+                tag = re.sub(r'width:\s*100%[;"]?', 'max-width:100%; max-height:200mm; width:auto; height:auto;', tag)
                 return f'<div class="original-chart">{tag}</div>'
             return tag
         body_inner = re.sub(r'<img[^>]+>', img_styler, body_inner)
 
+        # 【核心修复】清理可点击图片链接残留: Substack 源 [![alt](img)](url) 转换后外层 [ 与 ](url) 文本
+        body_inner = re.sub(r'<p class="p"[^>]*>\s*\[\s*</p>', '', body_inner)
+        body_inner = re.sub(r'<p class="p"[^>]*>\s*\]\(https?://[^<]*?</p>', '', body_inner)
+        body_inner = re.sub(r'(<br>\s*)\[\s*(?=</li>)', r'\1', body_inner)
+
         # 【核心修复】移除所有标签中的内联 font-family 和 font-size 样式
         body_inner = re.sub(r'font-family:[^;"]*;?', '', body_inner, flags=re.IGNORECASE)
         body_inner = re.sub(r'font-size:[^;"]*;?', '', body_inner, flags=re.IGNORECASE)
+
+        # 【古法排版】替换默认的左侧颜色条和色块背景（AI Slop）
+        body_inner = re.sub(r'border-left:\s*4px\s*solid\s*#[0-9a-fA-F]{6};?\s*border-bottom:\s*1px\s*dashed\s*#[0-9a-fA-F]{6};?', "border-left: none; border-bottom: 1px solid #3f3f3f; padding-bottom: 4px; font-family: 'Noto Serif SC', serif;", body_inner, flags=re.IGNORECASE)
+        body_inner = re.sub(r'color:\s*#fff;\s*background:\s*#[0-9a-fA-F]{6};', "color: #3f3f3f; background: transparent; border-bottom: 2px solid #3f3f3f; padding-bottom: 4px; font-family: 'Noto Serif SC', serif;", body_inner, flags=re.IGNORECASE)
+        body_inner = re.sub(r'box-shadow:\s*0\s*4px\s*6px\s*rgba\(0,\s*0,\s*0,\s*0\.1\);?', 'box-shadow: none;', body_inner, flags=re.IGNORECASE)
 
         # 使用 Assembler 重新包装
         assembler = ProfessionalAssembler(meta_engine)
@@ -595,6 +630,7 @@ if __name__ == "__main__":
     parser.add_argument("--thoughts", default="", help="Editor thoughts (ignored in translate mode)")
     parser.add_argument("--target-title", type=str, default="", help="Target title (ignored in translate mode)")
     parser.add_argument("--image-model", type=str, default="gemini-3-pro-image-preview", help="Image model to use")
+    parser.add_argument("--vision-model", type=str, default=None, help="Vision (VLM) model for localization, format vendor:model")
     parser.add_argument("--localize-images", action="store_true", help="Enable visual localization")
     parser.add_argument("--force-relocalize", action="store_true", help="Force generating new versions of localized images")
     parser.add_argument("--gen-images", action="store_true", help="Generate actual images")
@@ -607,6 +643,6 @@ if __name__ == "__main__":
     parser.add_argument("--internal-run", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
-    wf = TranslationWorkflow(args.input, project_root=args.project_root, cover_style=args.cover_style, model_name=args.model, target_title=args.target_title, reuse_translation=args.reuse_translation, localize_images=args.localize_images, force_relocalize=args.force_relocalize, non_interactive=args.non_interactive)
+    wf = TranslationWorkflow(args.input, project_root=args.project_root, cover_style=args.cover_style, model_name=args.model, target_title=args.target_title, reuse_translation=args.reuse_translation, localize_images=args.localize_images, force_relocalize=args.force_relocalize, non_interactive=args.non_interactive, image_model=args.image_model, vision_model=args.vision_model)
     wf.interactive = args.interactive
     wf.run(publish_pdf=args.pdf)

@@ -317,9 +317,27 @@ class LLMClient:
         }
         # Omit temperature for reasoning/thinking models (like o1, o3, reasoner, k2.5, k2.6) to avoid 400 Bad Request
         is_reasoning = any(x in model_name.lower() for x in ["o1", "o3", "reasoner", "k2.6", "k2.5"])
+        formatted_content = prompt
+        if isinstance(prompt, list):
+            formatted_content = []
+            for item in prompt:
+                if isinstance(item, str):
+                    formatted_content.append({"type": "text", "text": item})
+                elif isinstance(item, dict) and "inline_data" in item:
+                    mime_type = item["inline_data"].get("mime_type", "image/jpeg")
+                    base64_data = item["inline_data"].get("data", "")
+                    # Ensure base64 string
+                    if isinstance(base64_data, bytes):
+                        import base64
+                        base64_data = base64.b64encode(base64_data).decode("utf-8")
+                    formatted_content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{base64_data}"}
+                    })
+
         data = {
             "model": model_name,
-            "messages": [{"role": "user", "content": prompt}]
+            "messages": [{"role": "user", "content": formatted_content}]
         }
         if not is_reasoning:
             data["temperature"] = 0.3
@@ -475,33 +493,32 @@ class LLMClient:
         if provider == LLMProvider.GEMINI:
             return self._call_gemini(model_name, content, api_key)
         elif provider == LLMProvider.OPENAI:
-            if isinstance(content, list): raise Exception("Multimodal not supported for this provider yet.")
             base_url = os.environ.get("OPENAI_API_BASE") or "https://api.openai.com/v1"
             if base_url.endswith("/v1/"): base_url = base_url[:-1]
             return self._call_openai_compatible(model_name, content, base_url, api_key)
         elif provider == LLMProvider.MOONSHOT:
-            if isinstance(content, list): raise Exception("Multimodal not supported for this provider yet.")
             return self._call_openai_compatible(model_name, content, "https://api.moonshot.cn/v1", api_key)
         elif provider == LLMProvider.DASHSCOPE:
-            if isinstance(content, list): raise Exception("Multimodal not supported for this provider yet.")
             return self._call_openai_compatible(model_name, content, "https://dashscope.aliyuncs.com/compatible-mode/v1", api_key)
         elif provider == LLMProvider.ZHIPU:
-            if isinstance(content, list): raise Exception("Multimodal not supported for this provider yet.")
             return self._call_openai_compatible(model_name, content, "https://open.bigmodel.cn/api/paas/v4", api_key)
         elif provider == LLMProvider.DEEPSEEK:
-            if isinstance(content, list): raise Exception("Multimodal not supported for this provider yet.")
             return self._call_openai_compatible(model_name, content, "https://api.deepseek.com", api_key)
         elif provider == LLMProvider.SILICONFLOW:
-            if isinstance(content, list): raise Exception("Multimodal not supported for this provider yet.")
             return self._call_openai_compatible(model_name, content, "https://api.siliconflow.cn/v1", api_key)
         elif provider == LLMProvider.VERTEX:
             return self._call_vertex(model_name, content, api_key)
         elif provider == LLMProvider.MINIMAX:
-            if isinstance(content, list): raise Exception("Multimodal not supported for this provider yet.")
             return self._call_openai_compatible(model_name, content, "https://api.minimaxi.com/v1", api_key)
         return None
 
     def generate_content(self, content: Union[str, List], model_name: Optional[str] = None, fallback: bool = False, provider: Optional[LLMProvider] = None) -> Optional[str]:
+        if model_name and "::" in model_name:
+            vendor_str, model_name = model_name.split("::", 1)
+            if not provider:
+                try: provider = LLMProvider(vendor_str.lower())
+                except ValueError: pass
+
         targets = []
 
         # 确定 primary provider

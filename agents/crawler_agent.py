@@ -243,8 +243,11 @@ def extract_medium_apollo_state(html_content):
                 level = int(p_type[1]) if len(p_type) > 1 else 3
                 md_lines.append(f"\n\n{'#' * level} {text}\n\n")
             elif p_type == "IMG":
-                ref = p.get("metadata", {}).get("__ref", "")
-                img_id = images_metadata.get(ref, {}).get("id")
+                metadata = p.get("metadata", {})
+                img_id = metadata.get("id")
+                if not img_id:
+                    ref = metadata.get("__ref", "")
+                    img_id = images_metadata.get(ref, {}).get("id")
                 if img_id:
                     md_lines.append(f"\n\n![Image](https://miro.medium.com/v2/resize:fit:1400/{img_id})\n\n")
             elif p_type in ["ULI", "OLI"]:
@@ -846,6 +849,8 @@ def extract_from_url(url, model_name="gemini-3.1-flash-preview"):
                 )
                 md_content = result.stdout.strip()
             except subprocess.CalledProcessError as e:
+                error_msg = f"Error loading URL with System Defuddle: {e}"
+                print(error_msg)
                 print(f"Crawler Agent: Defuddle failed, attempting fallback to Playwright...")
             try:
                 with sync_playwright() as p:
@@ -865,7 +870,8 @@ def extract_from_url(url, model_name="gemini-3.1-flash-preview"):
             except Exception as e2:
                 err2 = f"Fallback Playwright also failed: {e2}"
                 print(err2)
-                return error_msg + "\n" + err2
+                _emsg = error_msg if 'error_msg' in locals() else "Defuddle path not taken"
+                return f"Crawler failed for {url}.\nDefuddle: {_emsg}\n{err2}"
 
     # 4. Title & Metadata Refinement
     if not title or title.startswith("Extracted from"):
@@ -1205,6 +1211,7 @@ def refine_extracted_content(metadata, body, model_name="gemini-3.1-pro-preview"
     """Refine extracted content using AI and format as strict YAML."""
     # Standalone: common_utils and llm_utils are in the same agents directory
     from llm_utils import get_client
+    import re
 
     print("Crawler Agent: Identifying core metadata targets...")
     current_date = metadata.get("publish_date", datetime.now().strftime('%Y-%m-%d'))
@@ -1223,6 +1230,19 @@ def refine_extracted_content(metadata, body, model_name="gemini-3.1-pro-preview"
     else:
         url_instruction = f"""- **url**: {raw_url}"""
 
+    # --- IMAGE PROTECTION START ---
+    # Extract all markdown images and replace with secure placeholders
+    # Handle standard images ![alt](url) and HTML images <img src="url">
+    images = []
+    
+    def md_replacer(match):
+        idx = len(images)
+        images.append(match.group(0))
+        return f" 〖IMG_PLACEHOLDER_{idx}〗 "
+        
+    protected_body = re.sub(r'!\[([^\]]*)\]\(([^\)]+)\)', md_replacer, body)
+    # --- IMAGE PROTECTION END ---
+
     client = get_client()
     prompt = f"""
     You are a professional content curator. Read the RAW content from a web article.
@@ -1239,9 +1259,7 @@ def refine_extracted_content(metadata, body, model_name="gemini-3.1-pro-preview"
        - **MANDATORY**: Exclude ONLY Publication or Column introductions (e.g. "About Metadata Weekly", "About this column", "栏目介绍").
        - **Exclude Hashtags**: Strip hashtags like #AI, #Tech if they appear at the end or as navigation noise.
        - **Exclude Navigation**: Remove "Next post", "Prev post", etc.
-       - **PRESERVE AND PLACE IMAGES (CRITICAL)**: Keep ALL image markdown tags like `![Image](path)` or `![alt](path)`.
-         - DO NOT remove, shorten, or alter any image markdown tags.
-         - **IMAGE PLACEMENT**: The input text might have all images appended at the end of pages. You MUST relocate these images to their logically correct positions within the article body (e.g., immediately after the paragraph that describes the image, or between logical sections). Do NOT leave them bunched up.
+       - **PRESERVE IMAGE PLACEHOLDERS (CRITICAL)**: The text contains image markers like 〖IMG_PLACEHOLDER_0〗. You MUST NOT delete them. Leave them exactly where they are.
     5. **IMPORTANT - NO HALLUCINATION**:
        - **author**: The person's name (no prefixes). Look for "By [Name]", "Written by [Name]", or "作者：[Name]". If not found in body or raw input, use "Unknown". **DO NOT INVENT**.
        - **source**: The agency/entity (e.g., Palantir, Gartner, AWS).
@@ -1275,10 +1293,24 @@ def refine_extracted_content(metadata, body, model_name="gemini-3.1-pro-preview"
     Source: {metadata.get('source', '')}
     Author: {metadata.get('author', '')}
 
-    {body}
+    {protected_body}
     """
     refined = client.generate_content(prompt, model_name=model_name)
+    
     if refined and "---" in refined:
+        # --- IMAGE RESTORATION START ---
+        for idx, img_tag in enumerate(images):
+            placeholder = f"〖IMG_PLACEHOLDER_{idx}〗"
+            if placeholder in refined:
+                refined = refined.replace(placeholder, "\n\n" + img_tag + "\n\n")
+            else:
+                # LLM stripped it! Force append to body
+                refined += f"\n\n{img_tag}\n\n"
+        # Remove any leftover tags (e.g. if the LLM hallucinated some)
+        refined = re.sub(r'〖IMG_PLACEHOLDER_\d+〗', '', refined)
+        # Clean up excessive newlines
+        refined = re.sub(r'\n{3,}', '\n\n', refined)
+        # --- IMAGE RESTORATION END ---
         return refined
 
     # Fallback assembly if AI fails
@@ -1313,17 +1345,65 @@ def download_image(url, assets_dir):
 
         if not os.path.exists(local_path):
             print(f"Crawler Agent: Downloading {url}...")
-            r = requests.get(url, stream=True, timeout=5)
+            r = requests.get(url, stream=True, timeout=15)
             if r.status_code == 200:
                 with open(local_path, 'wb') as f:
                     for chunk in r.iter_content(1024):
                         f.write(chunk)
+
+                # Verify actual format and fix extension mismatch
+                actual_ext = _detect_image_ext(local_path)
+                if actual_ext and actual_ext != ext:
+                    new_filename = f"original_{name}.{actual_ext}"
+                    new_path = os.path.join(assets_dir, new_filename)
+                    os.rename(local_path, new_path)
+                    local_path = new_path
+                    filename = new_filename
+                    print(f"  [Fix] Extension corrected: .{ext} -> .{actual_ext}")
+
+                # Skip tiny icons/favicons (likely not article images)
+                if _is_tiny_icon(local_path):
+                    print(f"  [Skip] Tiny icon/image (<50px), removing: {filename}")
+                    os.remove(local_path)
+                    return None
         # else:
         #    print(f"Crawler Agent: Asset already exists, skipping: {filename}")
         return filename
     except Exception as e:
         print(f"[WARN] Failed to download {url}: {e}")
         return None
+
+def _detect_image_ext(filepath):
+    """Detect actual image format from file header, return correct extension."""
+    try:
+        with open(filepath, 'rb') as f:
+            header = f.read(12)
+        if header[:8] == b'\x89PNG\r\n\x1a\n':
+            return 'png'
+        if header[:3] == b'\xff\xd8\xff':
+            return 'jpg'
+        if header[:6] in (b'GIF87a', b'GIF89a'):
+            return 'gif'
+        if header[:4] == b'RIFF' and header[8:12] == b'WEBP':
+            return 'webp'
+        # SVG is text-based, check for XML/SVG markers
+        with open(filepath, 'rb') as f:
+            text_head = f.read(200).decode('utf-8', errors='ignore')
+        if '<svg' in text_head or '<?xml' in text_head:
+            return 'svg'
+    except Exception:
+        pass
+    return None
+
+def _is_tiny_icon(filepath, threshold=50):
+    """Check if image is smaller than threshold pixels (likely favicon/icon)."""
+    try:
+        from PIL import Image
+        with Image.open(filepath) as img:
+            w, h = img.size
+            return w < threshold or h < threshold
+    except Exception:
+        return False
 
 def run(target_input, output_file=None, skip_refine=False, model_name="gemini-3.1-flash-preview"):
     # --- Resolve assets_dir EARLY (needed for pre-localize before AI refine) ---

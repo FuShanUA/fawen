@@ -517,7 +517,8 @@ def generate_standard_filename(meta, mode="译介"):
         date_clean = datetime.now().strftime('%Y%m%d')
 
     # 2. Author & Source
-    author_val = meta.get('author') or ""
+    # Prefer original_author if it exists, otherwise use author (which might be the publisher/translator)
+    author_val = meta.get('original_author') or meta.get('original_author_name') or meta.get('author') or ""
     # Replace spaces with underscores in author name
     author_clean = re.sub(r'\s+', '_', author_val).strip('_')
     

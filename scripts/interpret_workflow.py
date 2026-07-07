@@ -43,7 +43,32 @@ from common_utils import deterministic_scrub, load_style_guide, extract_clean_bo
 # Refined CSS Patch
 CSS_PATCH = """<style>
     h1, .h1 { display: block !important; font-size: 2.2em; font-weight: 800; color: #1a1a1a; margin-bottom: 0.5em; line-height: 1.2; }
-    blockquote { border-left: 4px solid #ddd !important; }
+    blockquote {
+        border-left: none !important;
+        padding: 1.2em 2em !important;
+        margin: 2em 0 !important;
+        background-color: #fbfbf9 !important;
+        border-top: 1px solid #e3e3e0 !important;
+        border-bottom: 1px solid #e3e3e0 !important;
+        font-family: "Source Han Serif", "Noto Serif CJK SC", serif !important;
+        color: #444 !important;
+        font-size: 1.05em !important;
+        line-height: 1.8 !important;
+        position: relative !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }
+    blockquote::before {
+        content: '“' !important;
+        font-family: serif !important;
+        font-size: 4em !important;
+        color: #d4d4d0 !important;
+        position: absolute !important;
+        left: 0.1em !important;
+        top: -0.2em !important;
+        line-height: 1 !important;
+        background: none !important;
+    }
     .original-chart { margin: 2.5em auto; text-align: center; max-width: 95%; }
     .original-chart img { max-width: 100%; height: auto; border-radius: 12px; border: 1px solid #eee; }
     .chart-caption { font-size: 0.85em; color: #888; margin-top: 12px; font-weight: 500; letter-spacing: 0.5px; }
@@ -73,7 +98,7 @@ import translator_agent
 import rewriter_agent
 import lead_in_agent
 
-def run_interpret_workflow(input_file, project_root=None, text_style="formal", cover_style="Industrial Amber", info_style="Industrial Amber", type_selection="trend", unslop_domain="中国政企特色数据治理", thoughts="", gen_images=False, model_name="gemini-3-flash-preview", image_model="vertex", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author=""):
+def run_interpret_workflow(input_file, project_root=None, text_style="formal", cover_style="Industrial Amber", info_style="Industrial Amber", type_selection="trend", unslop_domain="中国政企特色数据治理", thoughts="", gen_images=False, model_name="gemini-3-flash-preview", image_model="vertex", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author="", vision_model=None):
     if generate_summary is not None:
         summary_mode = "explicit" if generate_summary else "none"
     if summary_mode == "preset":
@@ -253,13 +278,13 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
     # 1. First check if rewriter output has any heading as title
     title = target_title or "无标题"
     # Find any heading at the very beginning that looks like a title (up to 3 hashes)
-    h_match = re.search(r'^#{1,3}\s*(.*)$', rewritten_raw, re.MULTILINE)
+    h_match = re.search(r'\A\s*#{1,3}\s*(.*)$', rewritten_raw, re.MULTILINE)
     if h_match:
         # NEW: Clean up leading hashes from the subgroup to avoid "# ##" issues
         if not target_title:
             title = re.sub(r'^#+\s*', '', h_match.group(1)).strip()
-        # Clean the title line from body
-        body = re.sub(r'^#{1,3}\s*.*$\n*', '', rewritten_raw, count=1, flags=re.MULTILINE).strip()
+        # Clean the title line from body (only at the very beginning)
+        body = re.sub(r'\A\s*#{1,3}\s*.*$\n*', '', rewritten_raw, count=1, flags=re.MULTILINE).strip()
     else:
         # Check if rewriter sent YAML (leaked)
         meta_match = re.search(r'^---\s*(.*?)\s*---', rewritten_raw, re.DOTALL)
@@ -337,6 +362,13 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
         'title': title
     }
     standard_name = generate_standard_filename(meta_for_name, mode="解读")
+    # 5. Image Optimization & File Write
+    original_img_count = len(re.findall(r'!\[.*?\]\(.*?\)', rewritten_raw))
+    if original_img_count > 0:
+        print(f"  [Image Optimization] Detected {original_img_count} original images. Stripping infographic placeholders to avoid layout clutter, but keeping cover image generation.")
+        # Only strip inline infographics, preserve the COVER_METAPHOR marker
+        final_body = re.sub(r'\[AI_GEN_IMG:(?!\s*COVER_METAPHOR).*?\]\n*', '', final_body, flags=re.DOTALL | re.IGNORECASE)
+
     base_dest_path = os.path.join(output_dir, f"{standard_name}.md")
     final_dest_path = get_versioned_path(base_dest_path)
 
@@ -349,7 +381,6 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
     with open(rewritten_file, 'w', encoding='utf-8') as f:
         f.write(final_body)
 
-    # 5. Illustrator (Cover + Infographics Prompts) - Runs on placeholders
     print(f"  STEP 5: Generating Visual Prompts (Illustrator)...")
     illustrator_path = os.path.join(os.path.dirname(__file__), "illustrator.py")
     cmd = [
@@ -361,6 +392,12 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
         "--image-model", image_model
     ]
     if gen_images: cmd.append("--gen-images")
+
+    source_md = os.path.join(project_root, "source", "source.md")
+    if os.path.exists(source_md):
+        with open(source_md, 'r', encoding='utf-8') as f:
+            if re.search(r'!\[.*?\]\(.*?\)', f.read()):
+                cmd.append("--skip-info")
 
     subprocess.run(cmd, check=True)
 
@@ -431,7 +468,12 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
     localized_map = {}
     if localize_images:
         print(f"  STEP 7.2.5: 正在对所有引用图表执行同构汉化...")
-        localized_map = localizer_agent.run_batch_localization(project_root, model_name=model_name, force=force_relocalize)
+        img_vendor, img_model = (image_model.split(":", 1) + [None])[:2] if image_model and ":" in image_model else (None, image_model)
+        vis_vendor, vis_model = (vision_model.split(":", 1) + [None])[:2] if vision_model and ":" in vision_model else (None, vision_model)
+        localized_map = localizer_agent.run_batch_localization(
+            project_root, model_name=model_name, force=force_relocalize,
+            image_model=img_model, image_vendor=img_vendor,
+            vision_model=vis_model or "qwen-vl-max")
     else:
         print(f"  STEP 7.2.5: ⏩ 跳过图表汉化 (根据配置要求)")
 
@@ -505,6 +547,14 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
         # Ensure no weird leakage from the previous broken description
         html_content = re.sub(r'<!doctype.*?>.*?<body', f'<!doctype html>\n<html>\n{new_head}\n<body', html_content, count=1, flags=re.DOTALL | re.IGNORECASE)
+        
+        # 【古法排版】清理引言和默认的左侧颜色条（AI Slop）
+        # Remove any inline styling on blockquote generated by the theme
+        html_content = re.sub(r'<blockquote[^>]*>', '<blockquote>', html_content, flags=re.IGNORECASE)
+        # Also clean up old regexes that might not match anymore but keep them just in case
+        html_content = re.sub(r'border-left:\s*4px\s*solid\s*#[0-9a-fA-F]{6};?\s*border-bottom:\s*1px\s*dashed\s*#[0-9a-fA-F]{6};?', "border-left: none; border-bottom: 1px solid #3f3f3f; padding-bottom: 4px; font-family: 'Noto Serif SC', serif;", html_content, flags=re.IGNORECASE)
+        html_content = re.sub(r'color:\s*#fff;\s*background:\s*#[0-9a-fA-F]{6};', "color: #3f3f3f; background: transparent; border-bottom: 2px solid #3f3f3f; padding-bottom: 4px; font-family: 'Noto Serif SC', serif;", html_content, flags=re.IGNORECASE)
+        html_content = re.sub(r'box-shadow:\s*0\s*4px\s*6px\s*rgba\(0,\s*0,\s*0,\s*0\.1\);?', 'box-shadow: none;', html_content, flags=re.IGNORECASE)
 
         with open(html_file, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -559,6 +609,45 @@ def generate_html(markdown_file, keep_title=False):
         root_html = clean_md.replace(".md", ".html")
         final_html = markdown_file.replace(".md", ".html")
         if os.path.exists(root_html):
+            # [FIX] Overide AI-slop blockquote styling (Theme Grace) with elegant Ancient style
+            with open(root_html, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            
+            refined_blockquote_css = """
+<style>
+blockquote {
+    border-left: none !important;
+    padding: 1.2em 2em !important;
+    margin: 2em 0 !important;
+    background-color: #fbfbf9 !important;
+    border-top: 1px solid #e3e3e0 !important;
+    border-bottom: 1px solid #e3e3e0 !important;
+    font-family: "Source Han Serif", "Noto Serif CJK SC", serif !important;
+    color: #444 !important;
+    font-size: 1.05em !important;
+    line-height: 1.8 !important;
+    position: relative !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+blockquote::before {
+    content: '“' !important;
+    font-family: serif !important;
+    font-size: 4em !important;
+    color: #d4d4d0 !important;
+    position: absolute !important;
+    left: 0.1em !important;
+    top: -0.2em !important;
+    line-height: 1 !important;
+    background: none !important;
+}
+</style>
+"""
+            html_content = html_content.replace('</head>', refined_blockquote_css + '\n</head>')
+            
+            with open(root_html, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+
             if os.path.exists(final_html): os.remove(final_html)
             os.rename(root_html, final_html)
             try: os.remove(clean_md)
@@ -579,6 +668,7 @@ if __name__ == "__main__":
     parser.add_argument("--unslop", default="中国政企特色数据治理", help="Unslop domain domain")
     parser.add_argument("--model", default="gemini-3-flash-preview", help="LLM model name")
     parser.add_argument("--image-model", type=str, default="vertex", help="Image generation model/engine")
+    parser.add_argument("--vision-model", type=str, default=None, help="Vision (VLM) model for localization, format vendor:model")
     parser.add_argument("--thoughts", default="", help="Editor thoughts/instructions")
     parser.add_argument("--target-title", default="", help="Forced title for the article")
     parser.add_argument("--gen-images", action="store_true", help="Generate actual images via Gemini API")
@@ -639,7 +729,8 @@ if __name__ == "__main__":
         summary_mode=sum_mode,
         summary_prompt=args.summary_prompt,
         narrative_theme=args.narrative_theme,
-        author=args.author
+        author=args.author,
+        vision_model=args.vision_model
     )
 
     # FINAL CLEANUP: Remove .bak files from project output

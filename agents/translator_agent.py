@@ -325,17 +325,17 @@ def run_atomic_translation(input_file, style="formal", unslop_domain="B2B", proj
             print(f"    {idx+1:02d}. {os.path.basename(f)}")
 
         tasks = []
-        for cf in chunk_files:
+        for idx, cf in enumerate(chunk_files):
             with open(cf, 'r', encoding='utf-8') as f:
                 content = f.read()
                 # Bypass validation to ensure no sections are missing
-                tasks.append({"prompt": build_translation_prompt(content, style, unslop_domain), "file": cf})
+                tasks.append({"prompt": build_translation_prompt(content, style, unslop_domain), "file": cf, "chunk_idx": idx})
 
         if not tasks:
             print("  [Skill] ⚠️ No content chunks passed validation. Continuing with raw translation...")
-            for cf in chunk_files:
+            for idx, cf in enumerate(chunk_files):
                  with open(cf, 'r', encoding='utf-8') as f:
-                     tasks.append({"prompt": build_translation_prompt(f.read(), style, unslop_domain), "file": cf})
+                     tasks.append({"prompt": build_translation_prompt(f.read(), style, unslop_domain), "file": cf, "chunk_idx": idx})
 
         client = get_client()
         results = client.generate_batch(tasks, model_name=model_name)

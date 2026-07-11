@@ -2,6 +2,7 @@ import os
 import sys
 import argparse
 import subprocess
+import shutil
 import re
 import json
 from datetime import datetime
@@ -474,8 +475,12 @@ class TranslationWorkflow:
                 # 将路径从 original 切换到 localized
                 old_path = f"../assets/original/{orig_img}"
                 new_path = f"../assets/localized/{loc_img}"
-                body = body.replace(old_path, new_path)
-                print(f"    ✨ 已替换汉化图: {orig_img} -> {loc_img}")
+                if old_path in body:
+                    body = body.replace(old_path, new_path)
+                    print(f"    ✨ 已替换汉化图: {orig_img} -> {loc_img}")
+                elif new_path in body:
+                    # Body already references the localized path (from a previous run)
+                    print(f"    ♻️  图片已指向汉化版，跳过替换: {loc_img}")
 
             # 补丁：处理可能已经变成 assets/localized 的路径（针对多次执行的情况）
             # 确保即使 orig_img 已经在正文中了也能被正确引用
@@ -515,6 +520,49 @@ class TranslationWorkflow:
         print(f"✅ [Done] 翻译任务完成。产出目录: {self.output_dir}")
         return str(final_md_path)
 
+    def _python_markdown_to_html(self, md_path):
+        """Fallback: convert markdown to HTML using Python (no bun/Node required)."""
+        try:
+            import markdown  # type: ignore
+        except ImportError:
+            # Try to install it automatically
+            print("  [Setup] 'markdown' package not found. Attempting pip install...")
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", "markdown"],
+                              capture_output=True, text=True, timeout=30)
+                import markdown  # type: ignore
+                print("  [Setup] 'markdown' installed successfully.")
+            except Exception as e:
+                print(f"  ❌ Cannot install 'markdown' package: {e}")
+                return None
+        try:
+            with open(md_path, 'r', encoding='utf-8') as f:
+                md_content = f.read()
+            html_body = markdown.markdown(md_content, extensions=['extra', 'codehilite', 'toc', 'tables', 'fenced_code'])
+            # Wrap in a basic HTML document
+            html_doc = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.8; color: #333; }}
+h1, h2, h3 {{ color: #1a1a1a; }}
+img {{ max-width: 100%; height: auto; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }}
+pre {{ background: #f4f4f4; padding: 16px; overflow-x: auto; border-radius: 6px; }}
+</style>
+</head>
+<body>
+{html_body}
+</body>
+</html>"""
+            return html_doc
+        except Exception as e:
+            print(f"  ❌ Python markdown conversion failed: {e}")
+            return None
+
     def generate_professional_html(self, md_path, meta_engine):
         """调用工具生成基础 HTML，然后使用 Assembler 进行专业增强。"""
         try:
@@ -525,17 +573,53 @@ class TranslationWorkflow:
             html_skill_dir = None
 
         if not html_skill_dir or not os.path.exists(html_skill_dir):
+            # Fallback to known path where dependencies are already installed
             html_skill_dir = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-markdown-to-html"
+            if not os.path.exists(html_skill_dir):
+                html_skill_dir = os.path.join(postfdry_root, "lib", "baoyu-skills", "skills", "baoyu-markdown-to-html")
+                if not os.path.exists(html_skill_dir):
+                    print(f"  [Warning] baoyu-markdown-to-html not found. HTML styling will be skipped.")
+                    return None
+
+        # Ensure bun dependencies are installed
+        scripts_dir = os.path.join(html_skill_dir, "scripts")
+        if not os.path.exists(os.path.join(scripts_dir, "node_modules")):
+            print(f"  [Setup] Installing baoyu-markdown-to-html dependencies...")
+            install_cmd = f'cd "{scripts_dir}" && bun install'
+            install_result = subprocess.run(install_cmd, shell=True, capture_output=True, text=True)
+            if install_result.returncode != 0:
+                # Try npm as fallback
+                install_cmd = f'cd "{scripts_dir}" && npm install'
+                install_result = subprocess.run(install_cmd, shell=True, capture_output=True, text=True)
+            if install_result.returncode != 0:
+                print(f"  [Warning] Failed to install dependencies: {install_result.stderr[:200]}")
 
         main_ts = os.path.join(html_skill_dir, "scripts", "main.ts")
 
-        # 先生成基础 HTML
-        cmd = f'npx -y bun "{main_ts}" "{md_path}" --theme grace'
-        subprocess.run(cmd, shell=True, check=True, capture_output=True)
-
-        temp_html = str(md_path).replace(".md", ".html")
-        with open(temp_html, 'r', encoding='utf-8') as f:
-            raw_html = f.read()
+        # 先生成基础 HTML — try bun directly first (faster), then fall back to npx
+        bun_bin = shutil.which("bun")
+        if bun_bin:
+            cmd = f'"{bun_bin}" "{main_ts}" "{md_path}" --theme grace'
+        else:
+            cmd = f'npx -y bun "{main_ts}" "{md_path}" --theme grace'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  ⚠️ baoyu-markdown-to-html via bun failed (exit {result.returncode})")
+            print(f"     stderr: {result.stderr[:300] if result.stderr else '(empty)'}")
+            print(f"  [Fallback] Using Python-native markdown-to-HTML conversion...")
+            raw_html = self._python_markdown_to_html(md_path)
+            if not raw_html:
+                # Instead of crashing with an undefined CalledProcessError,
+                # raise a proper RuntimeError with useful diagnostic info
+                raise RuntimeError(
+                    f"HTML generation failed. bun exit code: {result.returncode}\n"
+                    f"bun stderr: {result.stderr[:500] if result.stderr else '(empty)'}\n"
+                    f"Python markdown fallback also failed (is the 'markdown' package installed? pip install markdown)"
+                )
+        else:
+            temp_html = str(md_path).replace(".md", ".html")
+            with open(temp_html, 'r', encoding='utf-8') as f:
+                raw_html = f.read()
 
         # 提取 <body> 中的内容
         body_match = re.search(r'<body[^>]*>(.*?)</body>', raw_html, re.DOTALL | re.IGNORECASE)

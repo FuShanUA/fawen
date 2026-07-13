@@ -1,0 +1,195 @@
+I0712 22:34:17.161145  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161387  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161408  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161423  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161432  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161471  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161488  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161497  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161502  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161508  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161514  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161519  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161559  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161602  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161612  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161619  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161632  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161637  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161644  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161650  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161657  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161664  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161669  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161675  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161680  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161685  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161691  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161696  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161703  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161708  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161715  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161720  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161726  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161731  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161736  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161741  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161747  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161769  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161775  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161780  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161790  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161796  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161801  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161812  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161817  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161823  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161829  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161834  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161840  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161845  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161850  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161856  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161861  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161866  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161872  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161877  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161882  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161887  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161892  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161897  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161902  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161908  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161913  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161918  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161923  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161928  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161933  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161938  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161943  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161948  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161953  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161958  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161964  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161977  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161982  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161987  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161992  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.161997  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162003  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162008  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162013  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162018  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162024  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162029  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162034  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162039  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162044  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162049  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:34:17.162054  461537 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0712 22:37:50.016720  467933 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(12, generation: 1)
+🌐 正在初步分析 URL: https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+Crawler Agent: Sniffing metadata for https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+  [Sniffing Failed] HTTP Error 403: Forbidden
+🌐 正在初步分析 URL: https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+Crawler Agent: Sniffing metadata for https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+  [Sniffing Failed] HTTP Error 403: Forbidden
+🚀 正在抓取并利用 AI 优化原文内容...
+Crawler Agent: Sniffing metadata for https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+  [Sniffing Failed] HTTP Error 403: Forbidden
+Crawler Agent: Detected Medium URL. Fetching via Playwright...
+Crawler Agent: Successfully extracted content from Medium Apollo State.
+  [Scout] Analyzing head/tail for semantic boilerplate [Model: gemini::gemini-3.1-pro-preview]...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+  [Scout] Found content start anchor. Stripping head noise...
+Crawler Agent: Identifying core metadata targets...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+Crawler Agent: Localizing remote images...
+Crawler Agent: Downloading https://miro.medium.com/v2/resize:fit:1400/1*cI7YR2ZSISZ8DaV8GDqVkA.png...
+Crawler Agent: Output saved to /Users/shanfu/cc/Projects/untitled_article/source/source.md
+ 🤔 正在利用 AI 分析文章特色并拟定出版建议...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+🔄 正在重命名项目目录: /Users/shanfu/cc/Projects/untitled_article -> /Users/shanfu/cc/Projects/data_governance_runs_on_incentives_not_mandates
+Crawler Agent: Sniffing metadata for https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+  [Sniffing Failed] HTTP Error 403: Forbidden
+Crawler Agent: Sniffing metadata for https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+  [Sniffing Failed] HTTP Error 403: Forbidden
+🌐 正在初步分析 URL: https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+Crawler Agent: Sniffing metadata for https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+  [LD-JSON Success] Title: Data Governance Runs on Incent
+  [Sniffed Metadata] Title: Data Governance Runs on Incentives, Not Mandates., Date: 2026-05-08
+✨ [URL Mapping] 发现已匹配此 URL 的历史项目文件夹: /Users/shanfu/cc/Projects/data_governance_runs_on_incentives_not_mandates
+ℹ️  [Smart Check] 精确匹配成功，直接沿用现有项目结构，免除元数据强校验。
+🚀 [GUI] Running: /Users/shanfu/cc/.venv/bin/python -u /Users/shanfu/cc/Library/Tools/postfdry/scripts/postfdry-os.py https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9 --non-interactive --mode both --model gemini::gemini-3.1-pro-preview --text-style business --cover-style Industrial Amber --type trend --image-model google:gemini-3-pro-image --vision-model dashscope:qwen-vl-max --thoughts 剖析DCMM落地痛点：打破激励错位，以实质利益驱动基层执行。 --target-title 数据治理依靠激励而非行政指令 --catchy-title DCMM贯标避坑：数据治理为何总死于“红头文件”？ --gen-images --summary-mode implicit --narrative-theme DCMM贯标 --pdf --author AI数据治理研究院
+Crawler Agent: Sniffing metadata for https://medium.com/the-semantic-layer/data-governance-runs-on-incentives-not-mandates-b4ae8c8a91e9...
+  [Sniffing Failed] HTTP Error 403: Forbidden
+🌐 正在初步分析 URL: https://x.com/Alfred_Lin/status/2072317333205631068?s=20...
+🌐 正在初步分析 URL: https://x.com/Alfred_Lin/status/2072317333205631068?s=20...
+🚀 正在抓取并利用 AI 优化原文内容...
+Crawler Agent: Trying Tier 1 (Internal API): https://api.fxtwitter.com/Alfred_Lin/status/2072317333205631068?s=20
+Crawler Agent: Detected X Article in Quoted Tweet.
+Crawler Agent: Parsing X Article...
+Crawler Agent: Note: Tier 1 Article has no embedded images, proceeding with text-only content.
+Crawler Agent: Tier 1 (Internal API) success.
+Crawler Agent: Identifying core metadata targets...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+Crawler Agent: Localizing remote images...
+Crawler Agent: Downloading https://pbs.twimg.com/media/HMCLSazXEAAz7qU.jpg...
+Crawler Agent: Output saved to /Users/shanfu/cc/Projects/x_post/source/source.md
+ 🤔 正在利用 AI 分析文章特色并拟定出版建议...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+🔄 正在重命名项目目录: /Users/shanfu/cc/Projects/x_post -> /Users/shanfu/cc/Projects/lessons_from_deepseek_glm
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+🚀 正在抓取并利用 AI 优化原文内容...
+Crawler Agent: Trying Tier 1 (Internal API): https://api.fxtwitter.com/charliewarren/status/2062204573549490516
+Crawler Agent: Parsing X Article...
+Crawler Agent: Tier 1 (Internal API) success.
+Crawler Agent: Identifying core metadata targets...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+Crawler Agent: Localizing remote images...
+Crawler Agent: Downloading https://pbs.twimg.com/media/HJ5VRLGaEAAKLsp.jpg...
+Crawler Agent: Downloading https://pbs.twimg.com/media/HJ3mBUTbUAA9gWN.jpg...
+Crawler Agent: Downloading https://pbs.twimg.com/media/HJ3s9KwakAAw0Ob.jpg...
+[WARN] Failed to download https://pbs.twimg.com/media/HJ3s9KwakAAw0Ob.jpg: HTTPSConnectionPool(host='pbs.twimg.com', port=443): Max retries exceeded with url: /media/HJ3s9KwakAAw0Ob.jpg (Caused by ConnectTimeoutError(<HTTPSConnection(host='pbs.twimg.com', port=443) at 0x124f2f590>, 'Connection to pbs.twimg.com timed out. (connect timeout=15)'))
+Crawler Agent: Output saved to /Users/shanfu/cc/Projects/x_post/source/source.md
+ 🤔 正在利用 AI 分析文章特色并拟定出版建议...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+🔄 正在重命名项目目录: /Users/shanfu/cc/Projects/x_post -> /Users/shanfu/cc/Projects/trust_in_ai_native_service_companies
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+✨ [URL Mapping] 发现已匹配此 URL 的历史项目文件夹: /Users/shanfu/cc/Projects/trust_in_ai_native_service_companies
+ℹ️  [Smart Check] 精确匹配成功，直接沿用现有项目结构，免除元数据强校验。
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+✨ [URL Mapping] 发现已匹配此 URL 的历史项目文件夹: /Users/shanfu/cc/Projects/trust_in_ai_native_service_companies
+ℹ️  [Smart Check] 精确匹配成功，直接沿用现有项目结构，免除元数据强校验。
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+✨ [URL Mapping] 发现已匹配此 URL 的历史项目文件夹: /Users/shanfu/cc/Projects/trust_in_ai_native_service_companies
+ℹ️  [Smart Check] 精确匹配成功，直接沿用现有项目结构，免除元数据强校验。
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+🚀 正在抓取并利用 AI 优化原文内容...
+Crawler Agent: Trying Tier 1 (Internal API): https://api.fxtwitter.com/charliewarren/status/2062204573549490516
+Crawler Agent: Parsing X Article...
+Crawler Agent: Tier 1 (Internal API) success.
+Crawler Agent: Identifying core metadata targets...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+Crawler Agent: Localizing remote images...
+Crawler Agent: Downloading https://pbs.twimg.com/media/HJ5VRLGaEAAKLsp.jpg...
+Crawler Agent: Downloading https://pbs.twimg.com/media/HJ3mBUTbUAA9gWN.jpg...
+Crawler Agent: Downloading https://pbs.twimg.com/media/HJ3s9KwakAAw0Ob.jpg...
+Crawler Agent: Output saved to /Users/shanfu/cc/Projects/x_post/source/source.md
+ 🤔 正在利用 AI 分析文章特色并拟定出版建议...
+🔄 Executing LLM Call -> Provider: gemini, Model: gemini-3.1-pro-preview
+🔄 正在重命名项目目录: /Users/shanfu/cc/Projects/x_post -> /Users/shanfu/cc/Projects/trust_in_ai_native_service_companies
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+✨ [URL Mapping] 发现已匹配此 URL 的历史项目文件夹: /Users/shanfu/cc/Projects/trust_in_ai_native_service_companies
+ℹ️  [Smart Check] 精确匹配成功，直接沿用现有项目结构，免除元数据强校验。
+🚀 [GUI] Running: /Users/shanfu/cc/.venv/bin/python -u /Users/shanfu/cc/Library/Tools/postfdry/scripts/postfdry-os.py https://x.com/charliewarren/status/2062204573549490516 --non-interactive --mode both --model gemini::gemini-3.1-pro-preview --text-style business --cover-style Industrial Amber --type trend --image-model google:gemini-3-pro-image --vision-model dashscope:qwen-vl-max --thoughts 打破模型迷信：控制人类方差才是AI服务建立信任的核心。 --target-title AI原生服务公司中的信任问题 --catchy-title 决定AI原生服务生死的不是毛利率，而是“人类方差” --gen-images --summary-mode implicit --narrative-theme  --pdf --author AI数据治理研究院
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+✨ [URL Mapping] 发现已匹配此 URL 的历史项目文件夹: /Users/shanfu/cc/Projects/ai原生服务公司中的信任问题
+ℹ️  [Smart Check] 精确匹配成功，直接沿用现有项目结构，免除元数据强校验。
+🌐 正在初步分析 URL: https://x.com/charliewarren/status/2062204573549490516...
+✨ [URL Mapping] 发现已匹配此 URL 的历史项目文件夹: /Users/shanfu/cc/Projects/ai原生服务公司中的信任问题
+ℹ️  [Smart Check] 精确匹配成功，直接沿用现有项目结构，免除元数据强校验。
+🚀 [GUI] Running: /Users/shanfu/cc/.venv/bin/python -u /Users/shanfu/cc/Library/Tools/postfdry/scripts/postfdry-os.py https://x.com/charliewarren/status/2062204573549490516 --non-interactive --mode both --model dashscope::glm-5.2 --text-style business --cover-style Industrial Amber --type trend --image-model dashscope:qwen-image-2.0-pro --vision-model dashscope:qwen-vl-max --thoughts 打破模型迷信：控制人类方差才是AI服务建立信任的核心。 --target-title AI原生服务公司中的信任问题 --catchy-title 决定AI原生服务生死的不是毛利率，而是“人类方差” --gen-images --summary-mode implicit --narrative-theme  --pdf --author AI数据治理研究院

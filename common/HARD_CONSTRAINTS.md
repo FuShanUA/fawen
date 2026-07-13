@@ -170,4 +170,4 @@ These are strict media compliance rules. They are mechanically applied by the po
 *Last updated: 2026-03-08*
 
 > **Note**: Declarative LLM style guidance (formerly Section 5) has been moved to
-> `/Users/shanfu/cc/Library/Tools/WritingStyle/README.md` — loaded as `WRITING_STYLE_RULES` in `smart_translate.py`.
+> `common/HARD_CONSTRAINTS.md` — loaded as `WRITING_STYLE_RULES` in `smart_translate.py`.

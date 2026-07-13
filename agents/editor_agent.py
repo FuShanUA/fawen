@@ -244,9 +244,7 @@ class EditorHandler(http.server.SimpleHTTPRequestHandler):
 
             # DISTILLATION TRIGGER
             try:
-                distill_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "translation-distiller"))
-                if not os.path.exists(distill_dir):
-                    distill_dir = r"/Users/shanfu/cc/Library/Tools/translation-distiller"
+                distill_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "lib", "translation-distiller"))
                 diff_script = os.path.join(distill_dir, "generate_diff_draft.py")
 
                 if os.path.exists(diff_script):

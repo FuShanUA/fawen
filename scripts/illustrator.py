@@ -231,7 +231,13 @@ def main():
         print("\n🖼️  正在通过 'baoyu-image-gen' Skill (16:9) 生成图片资产...")
 
         # Skill path configuration
-        skill_base = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-image-gen"
+        try:
+            from common_utils import resolve_tool_path
+            skill_base = resolve_tool_path("baoyu-image-gen")
+        except Exception:
+            skill_base = None
+        if not skill_base or not os.path.exists(skill_base):
+            skill_base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "baoyu-skills", "skills", "baoyu-image-gen")
         script_path = os.path.join(skill_base, "scripts", "main.ts")
 
         # Setup prompt directory
@@ -275,7 +281,14 @@ def main():
             - Result: Return ONLY the refined English prompt string. No conversational filler.
             """
             print(f"  [Skill] Refining prompt for {target_base} [Model: {model_name}]...")
-            clean_en_prompt = client.generate_content(refinement_prompt, model_name=model_name)
+            # Enable same-provider cascade (glm-5.2 -> qwen3.7-max -> ...) so a single
+            # model timeout doesn't kill the whole INTERPRET pipeline. If ALL models
+            # fail, fall back to the raw prompt rather than crashing.
+            try:
+                clean_en_prompt = client.generate_content(refinement_prompt, model_name=model_name, fallback=True)
+            except Exception as refine_err:
+                print(f"  ⚠️ Prompt refinement failed ({refine_err}). Using raw prompt as fallback.")
+                clean_en_prompt = prompt
 
             # Audit logging
             from common_utils import log_prompt

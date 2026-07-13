@@ -4,7 +4,7 @@ description: "[DEPRECATED] 深度改写技能 (Agent 3)。请优先使用 postfd
 
 > [!CAUTION]
 > **本技能已弃用 (DEPRECATED)**
-> 此原子技能属于 Postfdry 早期架构。在 Postfdry 2.0 中，请直接运行 `python /Users/shanfu/cc/Library/Tools/postfdry/scripts/postfdry-os.py`。
+> 此原子技能属于 Postfdry 早期架构。在 Postfdry 2.0 中，请直接运行 `python scripts/postfdry-os.py`。
 > 调度器会自动协调改写、视觉注入及 3-Part Conclusion 的生成，以确保专家人设的绝对统一。
 
 # Postfdry Rewriter (Agent 3)

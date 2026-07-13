@@ -96,7 +96,8 @@ class PostOSGUI:
             "Alibaba (Bailian)": "dashscope",
             "MiniMax": "minimax",
             "火山引擎豆包": "seedream",
-            "Replicate": "replicate"
+            "Replicate": "replicate",
+            "纯代码渲染 (Inpaint)": "inpaint"
         }
         self.image_vendor_models = {
             "Google AI Studio": ["gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-3.5-pro-image-preview", "gemini-3.5-flash-image-preview", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview", "imagen-3.0-generate-002"],
@@ -107,7 +108,8 @@ class PostOSGUI:
             "Alibaba (Bailian)": ["qwen-image-2.0-pro", "qwen-image-max"],
             "MiniMax": ["image-01", "image-01-live"],
             "火山引擎豆包": ["doubao-seedream-5-0-260128"],
-            "Replicate": ["black-forest-labs/flux-1.1-pro", "black-forest-labs/flux-dev", "black-forest-labs/flux-schnell", "tencent/hunyuan-image-3"]
+            "Replicate": ["black-forest-labs/flux-1.1-pro", "black-forest-labs/flux-dev", "black-forest-labs/flux-schnell", "tencent/hunyuan-image-3"],
+            "纯代码渲染 (Inpaint)": ["inpaint"]
         }
 
         # Vision (VLM) Vendor Models - for image reading in localization
@@ -222,7 +224,6 @@ class PostOSGUI:
         try:
             from AppKit import NSApplication, NSImage
             paths = [
-                "/Users/shanfu/Desktop/公众号发布 2.0.app/Contents/Resources/AppIcon.icns",
                 os.path.join(POSTFDRY_ROOT, "wip", "AppIcon.icns"),
                 os.path.join(POSTFDRY_ROOT, "AppIcon.icns"),
             ]
@@ -648,6 +649,11 @@ class PostOSGUI:
         self.vision_model_combo = ttk.Combobox(f_vision, textvariable=self.vision_model_var, values=initial_vision_models, width=22, state="readonly")
         self.vision_model_combo.grid(row=0, column=3, sticky="w", padx=5)
 
+        # Strategy hint label (updated dynamically based on image model selection)
+        self.vision_hint_var = tk.StringVar(value="")
+        self.vision_hint_label = ttk.Label(f_vision, textvariable=self.vision_hint_var, foreground="gray")
+        self.vision_hint_label.grid(row=1, column=0, columnspan=4, sticky="w", pady=(0, 2))
+
         # 2. Image Gen Config Group
         f_img = ttk.LabelFrame(self.tab4, text=" 绘图与设计模型配置 ", padding=5)
         f_img.pack(fill="x", pady=2)
@@ -665,6 +671,7 @@ class PostOSGUI:
         initial_models = self.image_vendor_models.get(saved_vendor, ["gemini-3-pro-image-preview"])
         self.image_model_combo = ttk.Combobox(f_img, textvariable=self.image_model_var, values=initial_models, width=22, state="readonly")
         self.image_model_combo.grid(row=0, column=3, sticky="w", padx=5)
+        self.image_model_combo.bind("<<ComboboxSelected>>", lambda e: self._update_vision_model_state())
         self.btn_set_image_default = ttk.Button(f_img, text="设为默认", command=self.set_image_model_default)
         self.btn_set_image_default.grid(row=0, column=4, sticky="w", padx=5)
 
@@ -766,18 +773,23 @@ class PostOSGUI:
                 self.status_label.config(text="💡 检测到输入 URL/路径已变更，请点击“分析并配置流水线”重新分析")
 
     def browse_input(self):
-        f = filedialog.askopenfilename(filetypes=[
-            ("Supported files", "*.md *.txt *.pdf *.docx *.html *.htm"),
-            ("Markdown files", "*.md"),
-            ("HTML files", "*.html *.htm"),
-            ("PDF files", "*.pdf"),
-            ("Word files", "*.docx"),
-            ("All files", "*.*")
-        ])
+        mode = self.task_mode_map.get(self.mode_var.get(), "both")
+        if mode == "localize_only":
+            f = filedialog.askdirectory(title="选择需要汉化的图片目录")
+        else:
+            f = filedialog.askopenfilename(filetypes=[
+                ("Supported files", "*.md *.txt *.pdf *.docx *.html *.htm"),
+                ("Markdown files", "*.md"),
+                ("HTML files", "*.html *.htm"),
+                ("PDF files", "*.pdf"),
+                ("Word files", "*.docx"),
+                ("All files", "*.*")
+            ])
         if f:
             self.input_var.set(f)
-            # Try to pre-read title if local markdown
-            self.pre_read_local_metadata(f)
+            if mode != "localize_only" and os.path.isfile(f):
+                # Try to pre-read title if local markdown
+                self.pre_read_local_metadata(f)
             self.reset_merged_button()
             self.check_existing_translation()
 
@@ -823,7 +835,7 @@ class PostOSGUI:
             
         slug = None
         input_abs = os.path.abspath(target)
-        base_projects_dir = "/Users/shanfu/cc/Projects"
+        base_projects_dir = self._get_projects_base_dir()
         if input_abs.startswith(base_projects_dir):
             rel_path = os.path.relpath(input_abs, base_projects_dir)
             parts = rel_path.split(os.sep)
@@ -873,12 +885,16 @@ class PostOSGUI:
             self.set_frame_state(self.f_interpret, "disabled")
             self.image_vendor_combo.config(state="disabled")
             self.image_model_combo.config(state="disabled")
+            self.vision_vendor_combo.config(state="disabled")
+            self.vision_model_combo.config(state="disabled")
         elif m == "interpret":
             self.set_frame_state(self.f_translate, "disabled")
             self.set_frame_state(self.f_interpret, "normal")
             self.pdf_gen_var.set(False)
             self.image_vendor_combo.config(state="readonly")
             self.image_model_combo.config(state="readonly")
+            self.vision_vendor_combo.config(state="disabled")
+            self.vision_model_combo.config(state="disabled")
             self.on_summary_mode_change()
             self.update_image_fields_state()
         elif m == "localize_only":
@@ -886,8 +902,6 @@ class PostOSGUI:
             self.set_frame_state(self.f_interpret, "disabled")
             self.image_vendor_combo.config(state="readonly")
             self.image_model_combo.config(state="readonly")
-            self.vision_vendor_combo.config(state="readonly")
-            self.vision_model_combo.config(state="readonly")
         else: # both
             self.set_frame_state(self.f_translate, "normal")
             self.set_frame_state(self.f_interpret, "normal")
@@ -895,6 +909,9 @@ class PostOSGUI:
             self.image_model_combo.config(state="readonly")
             self.on_summary_mode_change()
             self.update_image_fields_state()
+
+        # Refine vision model state based on selected image model / strategy
+        self._update_vision_model_state()
 
         # Update button text to reflect current mode
         if self.merged_button_state == "analyze":
@@ -1024,13 +1041,32 @@ class PostOSGUI:
 
         # Determine output directory: localized/ subfolder next to first input
         first_dir = os.path.dirname(os.path.abspath(image_paths[0]))
-        output_dir = os.path.join(first_dir, "localized")
+        if os.path.basename(first_dir).lower() == 'original':
+            output_dir = os.path.join(os.path.dirname(first_dir), "localized")
+        else:
+            output_dir = os.path.join(first_dir, "localized")
 
-        # Read model config from GUI
-        vision_model = self.vision_model_var.get()
-        image_model = self.image_model_var.get()
-        image_vendor = self.image_vendor_map.get(self.image_vendor_var.get(), "dashscope")
-        text_model = self.model_var.get()
+        # Read model config from GUI — respect user's choice of model/vendor
+        # Use vendor::model format so generate_content routes to the correct provider
+        # Map vendor IDs to LLMProvider enum values (e.g. "google" -> "gemini")
+        vendor_to_llm_provider = {"google": "gemini", "seedream": "dashscope", "inpaint": "dashscope"}
+
+        vision_model_name = self.vision_model_var.get()
+        vision_vendor_id = self.vision_vendor_map.get(self.vision_vendor_var.get(), "dashscope")
+        vision_llm_vendor = vendor_to_llm_provider.get(vision_vendor_id, vision_vendor_id)
+        vision_model = f"{vision_llm_vendor}::{vision_model_name}"
+
+        image_model_name = self.image_model_var.get()
+        image_vendor_id = self.image_vendor_map.get(self.image_vendor_var.get(), "dashscope")
+        image_llm_vendor = vendor_to_llm_provider.get(image_vendor_id, image_vendor_id)
+        image_model = f"{image_llm_vendor}::{image_model_name}"
+
+        text_model_name = self.model_var.get()
+        text_vendor_id = self.vendor_map.get(self.vendor_var.get(), "dashscope")
+        text_model = f"{text_vendor_id}::{text_model_name}"
+
+        # Pass original vendor ID for strategy detection (not the LLMProvider-mapped one)
+        image_vendor = image_vendor_id
 
         # Switch to log tab and clear
         self.notebook.select(self.tab3)
@@ -1048,10 +1084,28 @@ class PostOSGUI:
 
     def _localize_only_thread(self, image_paths, output_dir, vision_model, image_model, image_vendor, text_model):
         import localizer_agent
+        import io
+        import sys
         total = len(image_paths)
         self.log(f"🎨 [汉化] 开始处理 {total} 张图片，输出目录: {output_dir}")
+        self.log(f"  策略: image_vendor={image_vendor}, image_model={image_model}, vision_model={vision_model}, text_model={text_model}")
+
+        # Capture localizer_agent's print() output and relay to GUI log
+        captured_output = io.StringIO()
 
         def progress_cb(current, tot, filename, status, result_path):
+            # Relay any captured print output to GUI log window
+            captured = captured_output.getvalue()
+            if captured:
+                # Only show new lines since last check
+                lines = captured.strip().split('\n')
+                for line in lines:
+                    line_stripped = line.strip()
+                    if line_stripped and not line_stripped.startswith('🔄'):
+                        self.root.after(0, lambda l=line_stripped: self.log(f"  {l}"))
+                captured_output.truncate(0)
+                captured_output.seek(0)
+
             msg_map = {
                 "processing": f"  [{current}/{tot}] 正在处理: {filename}...",
                 "success": f"  [{current}/{tot}] ✅ 完成: {filename}",
@@ -1065,6 +1119,10 @@ class PostOSGUI:
                 self.root.after(0, lambda: self.status_label.config(
                     text=f"🎨 汉化进度: {current}/{tot} ({pct}%)"))
 
+        # Redirect stdout to capture localizer_agent's print output
+        old_stdout = sys.stdout
+        sys.stdout = captured_output
+
         try:
             results = localizer_agent.run_standalone_localization(
                 image_paths, output_dir,
@@ -1076,19 +1134,38 @@ class PostOSGUI:
                 progress_callback=progress_cb,
                 force=True
             )
+
+            # Flush remaining captured output
+            sys.stdout = old_stdout
+            captured = captured_output.getvalue()
+            if captured:
+                for line in captured.strip().split('\n'):
+                    line_stripped = line.strip()
+                    if line_stripped and not line_stripped.startswith('🔄'):
+                        self.log(f"  {line_stripped}")
+
             succeeded = sum(1 for r in results if r.get("output"))
+            failed_list = [r for r in results if not r.get("output")]
+            if failed_list:
+                self.root.after(0, lambda: self.log(
+                    f"\n❌ 失败详情:"))
+                for r in failed_list:
+                    err = r.get("error", "unknown error")
+                    self.root.after(0, lambda e=err: self.log(f"  - {e}"))
             self.root.after(0, lambda: self.log(
                 f"\n{'='*50}\n🎨 汉化完成！成功 {succeeded}/{total} 张。"))
             self.root.after(0, lambda: self.status_label.config(
                 text=f"✅ 汉化完成: {succeeded}/{total} 张成功"))
 
-            # Pop Finder at output directory
+           # Pop Finder at output directory
             if os.path.exists(output_dir):
-                subprocess.Popen(["open", output_dir])
+                self._open_directory(output_dir)
         except Exception as e:
+            sys.stdout = old_stdout
             self.root.after(0, lambda: self.log(f"❌ 汉化异常: {e}"))
             self.root.after(0, lambda: self.status_label.config(text=f"❌ 汉化失败: {e}"))
         finally:
+            sys.stdout = old_stdout
             self.root.after(0, lambda: self.reset_merged_button())
 
     def load_project_manager(self, target):
@@ -1779,7 +1856,7 @@ class PostOSGUI:
             if os.path.exists(local_venv):
                 venv_python = local_venv
             else:
-                venv_python = "/Users/shanfu/cc/.venv/bin/python"
+                venv_python = sys.executable
         dispatch_script = os.path.join(POSTFDRY_ROOT, "scripts", "postfdry-os.py")
 
         img_vendor_id = self.image_vendor_map.get(self.image_vendor_var.get(), "vertex")
@@ -1887,14 +1964,7 @@ class PostOSGUI:
                     # Auto sync to WeChat if enabled
                     if self.wechat_sync_enabled_var.get():
                         try:
-                            local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
-                            rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "..", "Projects"))
-                            if os.path.exists(rel_projects):
-                                base_dir = rel_projects
-                            elif os.path.exists(local_projects_dir):
-                                base_dir = local_projects_dir
-                            else:
-                                base_dir = "/Users/shanfu/cc/Projects"
+                            base_dir = self._get_projects_base_dir()
                             if os.path.exists(base_dir):
                                 subdirs = [os.path.join(base_dir, d) for d in os.listdir(base_dir)]
                                 subdirs = [d for d in subdirs if os.path.isdir(d)]
@@ -2009,6 +2079,37 @@ class PostOSGUI:
         if env_key:
            self.update_key_editor(v_name, env_key)
 
+        self._update_vision_model_state()
+
+    def _update_vision_model_state(self):
+        """Enable/disable vision model section based on mode + image model strategy.
+
+        Vision model is only relevant when localization is active (localize_only / both).
+        Within those modes, the strategy further determines whether it's used:
+          - Gemini image model -> isomorphic: text_model handles vision, vision_model unused
+          - Inpaint -> inpaint_render: vision_model extracts, text_model translates
+          - Others (regenerate/ref_edit): vision_model does audit+translate
+        """
+        m = self.task_mode_map.get(self.mode_var.get(), "both")
+        if m in ("translate", "interpret"):
+            # No localization in these modes; vision model is irrelevant
+            self.vision_vendor_combo.config(state="disabled")
+            self.vision_model_combo.config(state="disabled")
+            self.vision_hint_var.set("")
+            return
+
+        img_model = (self.image_model_var.get() or "").lower()
+        if "gemini" in img_model:
+            state, hint = "disabled", "当前为同构策略 (Gemini)：由翻译模型兼任读图，此选项不生效"
+        elif "inpaint" in img_model:
+            state, hint = "readonly", "当前为代码渲染策略：读图模型提取坐标，翻译模型翻译，纯代码涂改渲染"
+        else:
+            state, hint = "readonly", ""
+
+        self.vision_vendor_combo.config(state=state)
+        self.vision_model_combo.config(state=state)
+        self.vision_hint_var.set(hint)
+
     def on_vision_vendor_change(self, event):
         v_name = self.vision_vendor_var.get()
         models = self.vision_vendor_models.get(v_name, ["qwen-vl-max"])
@@ -2057,14 +2158,7 @@ class PostOSGUI:
 
     def open_finished_product(self):
         try:
-            local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
-            rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "..", "Projects"))
-            if os.path.exists(rel_projects):
-                base_dir = rel_projects
-            elif os.path.exists(local_projects_dir):
-                base_dir = local_projects_dir
-            else:
-                base_dir = "/Users/shanfu/cc/Projects"
+            base_dir = self._get_projects_base_dir()
             if not os.path.exists(base_dir):
                 return
             
@@ -2078,7 +2172,7 @@ class PostOSGUI:
             
             if os.path.exists(output_dir):
                 self.log(f"📂 [GUI] 正在打开成品输出目录: {output_dir}")
-                subprocess.run(["open", output_dir])
+                self._open_directory(output_dir)
         except Exception as e:
             self.log(f"⚠️ [GUI] 自动打开成品目录失败: {str(e)}")
 
@@ -2086,7 +2180,7 @@ class PostOSGUI:
         app_id = ""
         app_secret = ""
         env_paths = [
-            "/Users/shanfu/cc/.baoyu-skills/.env",
+            os.path.join(POSTFDRY_ROOT, ".env"),
             os.path.expanduser("~/.baoyu-skills/.env")
         ]
         for path in env_paths:
@@ -2130,8 +2224,8 @@ class PostOSGUI:
     def load_wechat_accounts(self):
         accounts = []
         possible_paths = [
+            os.path.join(POSTFDRY_ROOT, "lib", "baoyu-skills", "skills", "baoyu-post-to-wechat", "EXTEND.md"),
             os.path.expanduser("~/.baoyu-skills/baoyu-post-to-wechat/EXTEND.md"),
-            "/Users/shanfu/cc/.baoyu-skills/baoyu-post-to-wechat/EXTEND.md"
         ]
         for path in possible_paths:
             if os.path.exists(path):
@@ -2225,11 +2319,12 @@ class PostOSGUI:
             if wechat_skill_dir and os.path.exists(wechat_skill_dir):
                 engine_script = os.path.join(wechat_skill_dir, "scripts", "wechat-api.ts")
             else:
-                fallback_dir = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "baoyu-skills", "skills", "baoyu-post-to-wechat"))
+                fallback_dir = os.path.join(POSTFDRY_ROOT, "lib", "baoyu-skills", "skills", "baoyu-post-to-wechat")
                 if os.path.exists(fallback_dir):
                     engine_script = os.path.join(fallback_dir, "scripts", "wechat-api.ts")
                 else:
-                    engine_script = "/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-post-to-wechat/scripts/wechat-api.ts"
+                    self.log("⚠️ [WeChat] 未找到 baoyu-post-to-wechat 技能，微信同步功能不可用。")
+                    return
             
             cmd = ["npx", "-y", "bun", engine_script, file_path, "--theme", theme, "--author", author]
             if alias and alias != "default":
@@ -2243,9 +2338,7 @@ class PostOSGUI:
             env["WECHAT_APP_ID"] = self.wechat_appid_var.get().strip()
             env["WECHAT_APP_SECRET"] = self.wechat_secret_var.get().strip()
             
-            cwd = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", ".."))
-            if not os.path.exists(cwd):
-                cwd = "/Users/shanfu/cc"
+            cwd = POSTFDRY_ROOT
             
             # 开启 stop_btn 并禁用 start_btn 以指示正在进行后台发布
             self.root.after(0, lambda: self.stop_btn.config(state="normal"))
@@ -2288,8 +2381,8 @@ class PostOSGUI:
             self.log(f"❌ [WeChat] 微信同步异常: {e}")
 
     def get_project_env_path(self):
-        # Dynamically locate the project root .env file (three levels up from Library/Tools/postfdry/)
-        return os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "..", ".env"))
+        # Standalone mode: .env lives in the project root directory
+        return os.path.join(POSTFDRY_ROOT, ".env")
 
     def load_api_key(self, vendor, env_key=None):
         if not env_key:
@@ -2437,22 +2530,45 @@ class PostOSGUI:
             success, response = client.generate_content_with_provider(prompt, provider, model_name=model, fallback=False)
 
             if success:
-                self.root.after(0, lambda: messagebox.showinfo("测试成功", f"连通性测试成功！\n响应内容: {response.strip()}"))
+                self.root.after(0, lambda: messagebox.showinfo("测试成功", f"供应商: {vendor}\n模型: {model}\n\n连通性测试成功！\n响应内容: {response.strip()}"))
                 self.root.after(0, lambda: self.status_label.config(text="✅ 连通性测试成功"))
                 self.log(f"✅ [Test] 与 {vendor} ({model}) 连通性测试成功！响应内容: {response.strip()}")
             else:
                 is_balance = any(kw in response.lower() for kw in ["insufficient balance", "insufficient_balance_error", "payment required", "402 client error", "status_code=1008"])
                 if is_balance:
-                    self.root.after(0, lambda: messagebox.showerror("测试失败", f"连通性测试失败！\n错误原因: 账号余额不足 (Payment Required/Insufficient Balance)\n详细错误: {response}"))
+                    self.root.after(0, lambda: messagebox.showerror("测试失败", f"供应商: {vendor}\n模型: {model}\n\n连通性测试失败！\n错误原因: 账号余额不足 (Payment Required/Insufficient Balance)\n详细错误: {response}"))
                     self.root.after(0, lambda: self.status_label.config(text="❌ 余额不足"))
                 else:
-                    self.root.after(0, lambda: messagebox.showerror("测试失败", f"连通性测试失败！\n错误原因: {response}"))
+                    self.root.after(0, lambda: messagebox.showerror("测试失败", f"供应商: {vendor}\n模型: {model}\n\n连通性测试失败！\n错误原因: {response}"))
                     self.root.after(0, lambda: self.status_label.config(text="❌ 连通性测试失败"))
                 self.log(f"❌ [Test] 与 {vendor} ({model}) 连通性测试失败: {response}")
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("错误", f"连通性测试执行异常: {e}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"供应商: {vendor}\n模型: {model}\n\n连通性测试执行异常: {e}"))
             self.root.after(0, lambda: self.status_label.config(text="❌ 测试异常"))
             self.log(f"❌ [Test] 连通性测试执行异常: {e}")
+
+    def _get_projects_base_dir(self):
+        """Resolve the Projects directory: local Projects/ folder or legacy monorepo location."""
+        local_projects_dir = os.path.join(POSTFDRY_ROOT, "Projects")
+        rel_projects = os.path.abspath(os.path.join(POSTFDRY_ROOT, "..", "..", "..", "Projects"))
+        if os.path.exists(rel_projects):
+            return rel_projects
+        if os.path.exists(local_projects_dir):
+            return local_projects_dir
+        os.makedirs(local_projects_dir, exist_ok=True)
+        return local_projects_dir
+
+    def _open_directory(self, path):
+        """Cross-platform directory opener."""
+        try:
+            if sys.platform == "win32":
+                os.startfile(path)
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception as e:
+            self.log(f"⚠️ [GUI] 无法打开目录: {e}")
 
     def paste_from_clipboard(self):
         try:

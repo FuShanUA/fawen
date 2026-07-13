@@ -179,8 +179,11 @@ class ProjectManager:
         else:
             base_projects_dir = local_projects_dir
             if not os.path.exists(base_projects_dir):
-                try: os.makedirs(base_projects_dir)
-                except: base_projects_dir = r"/Users/shanfu/cc/Projects"
+                try:
+                    os.makedirs(base_projects_dir)
+                except Exception:
+                    base_projects_dir = os.path.join(os.path.expanduser("~"), "Documents", "PostOS_Projects")
+                    os.makedirs(base_projects_dir, exist_ok=True)
 
         # Check if we are already in an existing project structure
         input_abs = os.path.abspath(self.input_path)

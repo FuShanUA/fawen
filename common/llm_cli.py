@@ -19,16 +19,23 @@ def main():
 
     # Read from stdin if piped (with non-blocking check to avoid hanging in subprocess)
     prompt = args.prompt
-    import select
     if not sys.stdin.isatty():
-        ready, _, _ = select.select([sys.stdin], [], [], 0.5)
-        if ready:
-            stdin_content = sys.stdin.read().strip()
-            if stdin_content:
-                if prompt:
-                    prompt = f"{prompt}\n\n[Input Context]:\n{stdin_content}"
-                else:
-                    prompt = stdin_content
+        # Cross-platform non-blocking stdin read (select is Unix-only)
+        import threading
+        stdin_content = [None]
+        def _read_stdin():
+            try:
+                stdin_content[0] = sys.stdin.read().strip()
+            except Exception:
+                pass
+        t = threading.Thread(target=_read_stdin, daemon=True)
+        t.start()
+        t.join(timeout=2.0)
+        if stdin_content[0]:
+            if prompt:
+                prompt = f"{prompt}\n\n[Input Context]:\n{stdin_content[0]}"
+            else:
+                prompt = stdin_content[0]
 
     if not prompt:
         parser.print_help()

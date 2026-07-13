@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "=== Start installing Standalone PostOS (公众号发布) Dependencies ==="
+echo "=== PostOS 2.0 Standalone - macOS/Linux Setup ==="
 
 # 1. Create virtual environment
 if [ ! -d ".venv" ]; then
@@ -13,8 +13,9 @@ echo "Installing python dependencies..."
 .venv/bin/pip install -r requirements.txt
 
 # 3. Install Playwright browsers (needed for web article scraping and PDF generation)
-echo "Installing Playwright system dependencies & browsers..."
+echo "Installing Playwright Chromium browser..."
 .venv/bin/playwright install chromium
 
+echo ""
 echo "=== Installation complete! ==="
 echo "To run the GUI: .venv/bin/python scripts/postos_gui.py"

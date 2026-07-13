@@ -566,7 +566,14 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
 def generate_html(markdown_file, keep_title=False):
     """Call the baoyu-markdown-to-html tool via local integration."""
-    html_skill_dir = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-markdown-to-html"
+    # Resolve via common_utils first, then check local lib packaging
+    try:
+        from common_utils import resolve_tool_path
+        html_skill_dir = resolve_tool_path("baoyu-markdown-to-html")
+    except Exception:
+        html_skill_dir = None
+    if not html_skill_dir or not os.path.exists(html_skill_dir):
+        html_skill_dir = os.path.join(POSTFDRY_ROOT, "lib", "baoyu-skills", "skills", "baoyu-markdown-to-html")
     main_ts = os.path.join(html_skill_dir, "scripts", "main.ts")
 
     if not os.path.exists(main_ts):

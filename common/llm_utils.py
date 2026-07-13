@@ -19,24 +19,26 @@ def get_env_path():
     # Dynamic resolution based on file structure
     current_dir = os.path.dirname(os.path.abspath(__file__))
     postfdry_root = os.path.dirname(current_dir)
+
+    # Standalone mode: project root .env takes priority (GUI-managed)
+    p = os.path.join(postfdry_root, ".env")
+    if os.path.exists(p): return p
+    p = os.path.join(postfdry_root, ".env")
+    if os.path.exists(p): return p
+
+    # Legacy monorepo paths (backward compatibility)
     library_dir = os.path.abspath(os.path.join(postfdry_root, "..", ".."))
     cc_dir = os.path.abspath(os.path.join(library_dir, ".."))
-
-    # Return the primary GUI-managed env file first
-    p = os.path.join(library_dir, ".env")
-    if os.path.exists(p): return p
-    
-    # Global/Project .env files first
     potentials = [
+        os.path.join(library_dir, ".env"),
         os.path.join(cc_dir, ".env"),
         os.path.join(cc_dir, ".baoyu-skills", ".env"),
-        os.path.join(postfdry_root, ".env")
     ]
     for p in potentials:
         if os.path.exists(p): return p
 
     if getattr(sys, 'frozen', False):
-        USER_DATA_DIR = os.path.join(os.path.expanduser("~"), "Documents", "AutoSub")
+        USER_DATA_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PostOS")
         return os.path.join(USER_DATA_DIR, ".env")
 
     # Search upwards for .env starting from current file
@@ -48,22 +50,22 @@ def get_env_path():
 
     # Default to the parent directory of this script's folder (e.g. Library/Tools)
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_dir, ".env")
+    return os.path.join(postfdry_root, ".env")
 
 ENV_PATH = get_env_path()
 
 try:
     from dotenv import load_dotenv  # type: ignore
-    # Load all potential env files in cascade order (earlier ones are overridden by later ones)
+    # Load env files in cascade order (standalone project root takes priority)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     postfdry_root = os.path.dirname(current_dir)
     library_dir = os.path.abspath(os.path.join(postfdry_root, "..", ".."))
     cc_dir = os.path.abspath(os.path.join(library_dir, ".."))
     for p in [
+        os.path.join(postfdry_root, ".env"),
         os.path.join(cc_dir, ".baoyu-skills", ".env"),
         os.path.join(cc_dir, ".env"),
-        os.path.join(library_dir, ".env"),
-        os.path.join(postfdry_root, ".env")
+        os.path.join(library_dir, ".env")
     ]:
         if os.path.exists(p):
             load_dotenv(p, override=True)
@@ -293,15 +295,17 @@ class LLMClient:
                 
             return LLMProvider.DEEPSEEK
         if "gemini" in model_name or "imagen" in model_name:
-            # Route Google models to Vertex ONLY if Vertex variables are explicitly defined in environment.
-            # Otherwise, if a Gemini Developer API key is present, prioritize LLMProvider.GEMINI for better stability and quota.
+            # If a Gemini Developer API key is available, prefer it over Vertex.
+            # Vertex requires specific project permissions that may not be configured.
+            # If the user explicitly chose Vertex (via vendor:: prefix), generate_content
+            # will override this routing — this fallback only applies when no vendor is specified.
+            if self.api_keys.get(LLMProvider.GEMINI):
+                return LLMProvider.GEMINI
+
             has_explicit_vertex = any(os.environ.get(k) for k in ["VERTEX_PROJECT_ID", "GOOGLE_CLOUD_PROJECT", "VERTEX_SA_KEY_PATH", "GOOGLE_APPLICATION_CREDENTIALS"])
             if has_explicit_vertex:
                 return LLMProvider.VERTEX
-            
-            if self.api_keys.get(LLMProvider.GEMINI):
-                return LLMProvider.GEMINI
-                
+
             if self.vertex_project:
                 return LLMProvider.VERTEX
         return LLMProvider.GEMINI
@@ -365,23 +369,25 @@ class LLMClient:
 
         try:
             import google.generativeai as genai  # type: ignore
+            import base64
             genai.configure(api_key=api_key)
             self._gemini_configured = True
 
             model = genai.GenerativeModel(model_name)
             self.limiter.wait()
 
+            # The Gemini SDK accepts dicts with "inline_data" keys via its internal
+            # to_part() converter. We just need to decode base64 data to bytes.
             if isinstance(content, list):
                 processed_parts = []
                 for p in content:
                     if isinstance(p, dict) and "inline_data" in p:
-                        import base64
                         mime_type = p["inline_data"]["mime_type"]
                         data_bytes = base64.b64decode(p["inline_data"]["data"])
-                        processed_parts.append({
-                            "mime_type": mime_type,
-                            "data": data_bytes
-                        })
+                        # Pass as dict — the SDK's to_part() handles conversion to protos.Part
+                        processed_parts.append({"inline_data": {"mime_type": mime_type, "data": data_bytes}})
+                    elif isinstance(p, str):
+                        processed_parts.append(p)
                     else:
                         processed_parts.append(p)
                 content = processed_parts
@@ -551,43 +557,51 @@ class LLMClient:
                 if key or is_vertex_adc:
                     targets.append((prov, key, model_name))
 
-            # [MODIFIED] If fallback is disabled (default), we only try the primary target.
-            # If fallback is enabled, we still limit it to the same provider if possible,
-            # or respect the strict "no silent fallback to other brands" rule.
+            # Fallback logic: Gemini models only fallback within Gemini/Vertex,
+            # never cross-brand to DashScope/Zhipu/etc.
+            is_gemini_family = (primary_prov in (LLMProvider.GEMINI, LLMProvider.VERTEX))
+
             if (not targets or fallback) and os.path.exists(ENV_PATH):
-                 # Try to pick others from .env
-                 for prov, key, mod in self.ordered_configs:
-                    if prov == LLMProvider.GEMINI: continue # 过滤普通 Gemini 防止与 Vertex 冲突或混用
-                    # If we already have a target for this provider, skip unless it's a different model
+                for prov, key, mod in self.ordered_configs:
+                    if is_gemini_family:
+                        # Gemini family: only allow same-brand fallback (Gemini <-> Vertex)
+                        if prov not in (LLMProvider.GEMINI, LLMProvider.VERTEX):
+                            continue
+                    else:
+                        # Non-Gemini: allow all providers except Gemini (prevent Vertex conflict)
+                        if prov == LLMProvider.GEMINI: continue
+                    # Skip if already in targets with same model
                     if any(t[0] == prov and t[2] == mod for t in targets): continue
                     targets.append((prov, key, mod))
 
             # If still nothing, fallback to available keys but ONLY the first one
             if not targets:
-                for prov, key in self.api_keys.items():
-                    if key and prov != LLMProvider.GEMINI: # 依然过滤普通 Gemini
-                        guess = "gpt-4o"
-                        if prov == LLMProvider.VERTEX: guess = "gemini-3.1-flash-lite-preview"
-                        elif prov == LLMProvider.DASHSCOPE: guess = "deepseek-v4-pro"
-                        targets.append((prov, key, guess))
-                        break
+                if is_gemini_family:
+                    # Gemini family: only fallback to Gemini/Vertex
+                    gem_key = self.api_keys.get(LLMProvider.GEMINI)
+                    v_key = self.api_keys.get(LLMProvider.VERTEX)
+                    if gem_key:
+                        targets.append((LLMProvider.GEMINI, gem_key, model_name or "gemini-3.1-flash-preview"))
+                    elif v_key or self.vertex_project:
+                        targets.append((LLMProvider.VERTEX, v_key, model_name or "gemini-3.1-flash-lite-preview"))
+                else:
+                    for prov, key in self.api_keys.items():
+                        if key and prov != LLMProvider.GEMINI:
+                            guess = "gpt-4o"
+                            if prov == LLMProvider.VERTEX: guess = "gemini-3.1-flash-lite-preview"
+                            elif prov == LLMProvider.DASHSCOPE: guess = "deepseek-v4-pro"
+                            targets.append((prov, key, guess))
+                            break
 
             # [STRICT] If targets has multiple entries but fallback is False, we ONLY try the first one.
-            # EXCEPT: If Vertex AI is the primary target, we always allow same-brand fallback to Developer Gemini.
+            # EXCEPT: If Gemini family, allow same-brand fallback (Gemini <-> Vertex).
             if not fallback and len(targets) > 1:
-                if targets[0][0] == LLMProvider.VERTEX:
+                if is_gemini_family or targets[0][0] == LLMProvider.VERTEX:
                     targets = [t for t in targets if t[0] in [LLMProvider.VERTEX, LLMProvider.GEMINI]]
                 else:
                     targets = targets[:1]
 
         errors = []
-        # [STRICT] If targets has multiple entries but fallback is False, we ONLY try the first one.
-        # EXCEPT: If Vertex AI is the primary target, we always allow same-brand fallback to Developer Gemini.
-        if not fallback and len(targets) > 1:
-            if targets[0][0] == LLMProvider.VERTEX:
-                targets = [t for t in targets if t[0] in [LLMProvider.VERTEX, LLMProvider.GEMINI]]
-            else:
-                targets = targets[:1]
 
         for provider, api_key, m_name in targets:
             print(f"🔄 Executing LLM Call -> Provider: {provider.value}, Model: {m_name}")

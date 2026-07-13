@@ -549,35 +549,30 @@ def generate_standard_filename(meta, mode="译介"):
 def resolve_tool_path(tool_name, default_hardcoded=None):
     """
     Resolves the absolute path of a tool/skill across branch environments.
-    Supports sibling tools, baoyu-skills, standalone packaging, and master-branch fallbacks.
+    Supports local lib packaging, sibling tools, baoyu-skills, and standalone packaging.
     """
-    # 1. Check current branch's local baoyu-skills
-    # ROOT_DIR is os.path.dirname(POSTOS_DIR) -> e.g. /Users/shanfu/cc-feature/Library/Tools
+    # 1. Check standalone local lib packaging (POSTOS_DIR/lib/baoyu-skills/skills/tool_name)
+    local_lib = os.path.join(POSTOS_DIR, "lib", "baoyu-skills", "skills", tool_name)
+    if os.path.exists(local_lib) and os.listdir(local_lib):
+        return local_lib
+
+    # 2. Check current branch's local baoyu-skills
     baoyu_path = os.path.join(ROOT_DIR, "baoyu-skills", "skills", tool_name)
     if os.path.exists(baoyu_path) and os.listdir(baoyu_path):
         return baoyu_path
 
-    # 2. Check current branch's sibling tools
+    # 3. Check current branch's sibling tools
     sibling_path = os.path.join(ROOT_DIR, tool_name)
     if os.path.exists(sibling_path):
         return sibling_path
 
-    # 3. Check standalone lib packaging (e.g. POSTOS_DIR/lib/tool_name)
-    local_lib = os.path.join(POSTOS_DIR, "lib", tool_name)
-    if os.path.exists(local_lib):
-        return local_lib
+    # 4. Check standalone lib packaging (e.g. POSTOS_DIR/lib/tool_name)
+    local_lib_direct = os.path.join(POSTOS_DIR, "lib", tool_name)
+    if os.path.exists(local_lib_direct):
+        return local_lib_direct
 
-    # 4. Fallback to master branch (cc) baoyu-skills (extremely useful if feature branch submodule isn't populated)
-    master_baoyu = os.path.join("/Users/shanfu/cc/Library/Tools", "baoyu-skills", "skills", tool_name)
-    if os.path.exists(master_baoyu) and os.listdir(master_baoyu):
-        return master_baoyu
 
-    # 5. Fallback to master branch (cc) sibling tools
-    master_sibling = os.path.join("/Users/shanfu/cc/Library/Tools", tool_name)
-    if os.path.exists(master_sibling):
-        return master_sibling
-
-    # 6. Check environment variables
+    # 5. Check environment variables
     skills_dir = os.environ.get("BAOYU_SKILLS_DIR")
     if skills_dir:
         env_skill_path = os.path.join(skills_dir, tool_name)

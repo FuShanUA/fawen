@@ -59,3 +59,8 @@
 "Codex": "Codex"
 "Gemini": "Gemini"
 "GPT": "GPT"
+
+# --- Role Names (2026-07-07) ---
+"Echo": "Echo" # Palantir-inspired role name, do not translate
+"Delta": "Delta" # Palantir-inspired role name, do not translate
+

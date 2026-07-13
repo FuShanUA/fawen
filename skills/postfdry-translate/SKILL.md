@@ -4,7 +4,7 @@ description: "[DEPRECATED] 专业翻译技能 (Agent 2)。请优先使用 postfd
 
 > [!CAUTION]
 > **本技能已弃用 (DEPRECATED)**
-> 此原子技能属于 Postfdry 早期架构。在 Postfdry 2.0 中，请直接运行 `python /Users/shanfu/cc/Library/Tools/postfdry/scripts/postfdry-os.py`。
+> 此原子技能属于 Postfdry 早期架构。在 Postfdry 2.0 中，请直接运行 `python scripts/postfdry-os.py`。
 > 调度器会自动协调翻译、导读、视觉生成及 PDF 导出，以确保逻辑和格式的绝对统一。
 
 # Postfdry Translator (Agent 2)

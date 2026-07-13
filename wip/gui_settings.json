@@ -1,9 +1,9 @@
 {
-    "input": "https://contextandchaos.substack.com/p/four-arguments-ontologists-never",
+    "input": "",
     "mode": "both",
     "llm_vendor": "Alibaba (Bailian)",
     "model": "glm-5.2",
-    "text_style": "technical",
+    "text_style": "business",
     "cover_style": "Industrial Amber",
     "pdf_template": "Federation",
     "article_type": "trend",
@@ -18,10 +18,11 @@
     "summary_mode": "implicit",
     "summary_prompt": "",
     "narrative_themes": {
-        "业务主题2": ""
+        "业务主题1": "数据要素、数据资产管理、AI+数据治理、DCMM贯标、可信数据空间",
+        "业务主题2": "DCMM贯标"
     },
     "selected_narrative_theme": "无特定主题",
-    "wechat_sync_enabled": true,
+    "wechat_sync_enabled": false,
     "wechat_theme": "modern",
     "wechat_author": "AI数据治理研究院",
     "author_history": [

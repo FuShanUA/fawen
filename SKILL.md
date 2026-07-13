@@ -18,19 +18,19 @@ Postfdry 2.0 is a modular intelligence system for high-end B2B content publishin
 ### 1. Direct URL/PDF Execution (Recommended)
 If a user provides a URL (e.g., Substack, Arxiv, News) or a PDF:
 Run the dispatcher directly on the target:
-`python Library/Tools/postfdry/scripts/postfdry-os.py <url_or_pdf_path>`
+`python scripts/postfdry-os.py <url_or_pdf_path>`
 
 *Note: This will automatically use the internal `crawler_agent.py` to fetch and clean content into a project workspace.*
 
 ### 2. Manual CLI Invocation
 Initialize the interactive "Pre-flight Check" for any local Markdown file:
 ```powershell
-python /Users/shanfu/cc/Library/Tools/postfdry/scripts/postfdry-os.py <input.md>
+python scripts/postfdry-os.py <input.md>
 ```
 *Note: This will automatically prompt for Text Style, Visual Style, and Editor Thoughts.*
 
 ## 📂 Project Management (Workspace Control)
-Postfdry 2.0 implements a **Centralized Asset Control** system. Every run creates a project folder in `/Users/shanfu/cc/Projects/Postfdry/`:
+Postfdry 2.0 implements a **Centralized Asset Control** system. Every run creates a project folder in `Projects/`:
 - **`source/`**: Localized original article.
 - **`assets/original/`**: **Automated sync** of all images from the source MD (links are rewritten to local paths).
 - **`assets/`**: Generated cover and brand-consistent infographics.
@@ -39,7 +39,7 @@ Postfdry 2.0 implements a **Centralized Asset Control** system. Every run create
 ## Key Entry Point: postfdry-os
 
 The primary way to use Postfdry is via the interactive dispatcher:
-- **Execution**: `python Library/Tools/postfdry/scripts/postfdry-os.py <input_file.md>`
+- **Execution**: `python scripts/postfdry-os.py <input_file.md>`
 - **Interactive Pre-flight Check**: Allows selecting Mode, Style, Article Type, and injecting "Editor Thoughts" before starting the pipeline.
 
 ## Core Capabilities (Atomic Skills)
@@ -74,8 +74,8 @@ The primary way to use Postfdry is via the interactive dispatcher:
 - **Workflow**: Atomic Translation -> Atomic Rewriting -> Global Lead-in -> Visuals (Infographics) -> HTML.
 
 ## Terminology Governance
-Postfdry 2.0 uses a centralized **[terms.yml](file:////Users/shanfu/cc/Library/Tools/postfdry/config/terms.yml)** for domain terminology (e.g., FDE, Agentic Infrastructure, DCMM). Updating this file immediately updates all agents' behavior.
+Postfdry 2.0 uses a centralized **[terms.yml](config/terms.yml)** for domain terminology (e.g., FDE, Agentic Infrastructure, DCMM). Updating this file immediately updates all agents' behavior.
 
 ---
 ## Automation Protocol for Orchestrator
-As the Antigravity Orchestrator, you should prefer calling the `postfdry-os.py` dispatcher or its underlying workflows (`translate_workflow.py` / `interpret_workflow.py`) to manage projects in `/Users/shanfu/cc/Projects/<project_name>/`.
+As the Antigravity Orchestrator, you should prefer calling the `postfdry-os.py` dispatcher or its underlying workflows (`translate_workflow.py` / `interpret_workflow.py`) to manage projects in `Projects/<project_name>/`.

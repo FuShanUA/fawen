@@ -12,7 +12,7 @@
    - 记录 `line_style` (solid, dashed, thickness)。
 
 2. **语义与排版指纹 (Typography Fingerprints)**:
-   - 对所有英文文本块进行 OCR。
+   - 对所有英文文本块进行 OCR。**必须彻底提取图片中的每一个英文字符和词组，绝不能遗漏任何一处文本块。**
    - 记录其 `id`, `english_text`, `BBox`, `font_style`, `font_weight`, `align` (left, center, right), `line_count`。
    - **严禁**：绝不允许将物理上的多行文本挤为一行记录。
 

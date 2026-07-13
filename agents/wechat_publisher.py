@@ -18,11 +18,12 @@ def generate_wechat_assets(md_path):
         baoyu_main_ts = os.path.join(baoyu_dir, "scripts", "main.ts")
     else:
         # Fallback to local sibling or hardcoded default
-        fallback_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "baoyu-skills", "skills", "baoyu-markdown-to-html"))
+        fallback_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "baoyu-skills", "skills", "baoyu-markdown-to-html")
         if os.path.exists(os.path.join(fallback_dir, "scripts", "main.ts")):
             baoyu_main_ts = os.path.join(fallback_dir, "scripts", "main.ts")
         else:
-            baoyu_main_ts = r"/Users/shanfu/cc/Library/Tools/baoyu-skills/skills/baoyu-markdown-to-html/scripts/main.ts"
+            print(f"Warning: baoyu-markdown-to-html not found. HTML generation will be skipped.")
+            return None
 
     base_name = os.path.basename(abs_md_path).replace(".md", "")
     tmp_out = os.path.join(cwd, f"{base_name}_pub_log.txt")

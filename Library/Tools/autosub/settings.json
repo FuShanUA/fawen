@@ -1,0 +1,28 @@
+{
+    "llm_vendor": "Alibaba (Bailian)",
+    "llm_model": "glm-5.2",
+    "spellcheck_model": "glm-5.2",
+    "model": "large-v2",
+    "style": "auto",
+    "trans_mode": "balanced",
+    "quality": "high",
+    "layout": "bilingual",
+    "main_lang": "cn",
+    "cn_font": "STKaiti",
+    "en_font": "Calibri",
+    "cn_size": "60",
+    "en_size": "36",
+    "cn_color": "Gold",
+    "en_color": "White",
+    "bg_box": true,
+    "api_key": "****************",
+    "quick": false,
+    "sync_gdrive": "18iAFFSuHQmZlxVN0dri1Gbje9SmpS96f",
+    "gdrive_enabled": true,
+    "bili_enabled": true,
+    "bili_tid": "人工智能",
+    "bili_season": "人工智能",
+    "vendor_default_models": {
+        "Alibaba (Bailian)": "glm-5.2"
+    }
+}

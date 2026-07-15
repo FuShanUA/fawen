@@ -1,0 +1,4 @@
+.agents/skills/google-drive-sync/credentials.json
+.agents/skills/google-drive-sync/token.json
+.agents/skills/bilibili-uploader/assets/cookies.json
+.agents/skills/bilibili-uploader/scripts/__pycache__/

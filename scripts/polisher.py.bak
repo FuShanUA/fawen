@@ -1,0 +1,254 @@
+"""
+polisher.py - Unified Text Humanizer, Professionalizer & Compliance Guard
+
+Combines:
+1. Humanizer-zh (AI pattern removal)
+2. Subtranslator (Anti-translationese & native flow)
+3. WritingStyle (Persona & Vocabulary Blacklist)
+4. Compliance (Regulatory terminology for TW/HK/Macao)
+5. Glossary (Deterministic term replacement)
+6. HARD_CONSTRAINTS.md (Regex-based punctuation cleanup)
+
+Usage: python polisher.py <input.md> [output.md] --mode [rewriting|polish] --thoughts "User's thoughts" --style [casual|intellectual|formal]
+"""
+
+import sys
+import os
+import re
+import json
+
+# Paths
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+POSTFDRY_DIR = os.path.dirname(SCRIPTS_DIR)
+TOOLS_DIR = os.path.dirname(POSTFDRY_DIR)
+COMMON_DIR = os.path.join(TOOLS_DIR, "common")
+ROOT_DIR = os.path.dirname(os.path.dirname(TOOLS_DIR)) # d:\cc
+
+# Load Skills / Rules
+def load_skill_content(name):
+    path = os.path.join(TOOLS_DIR, name, "SKILL.md")
+    if not os.path.exists(path):
+        # Try one level up if not found (for agents/skills)
+        path = os.path.join(ROOT_DIR, ".agents", "skills", name, "SKILL.md")
+    
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return ""
+
+def load_readme_content(name):
+    path = os.path.join(TOOLS_DIR, name, "README.md")
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return ""
+
+def load_unslop_rules(domain):
+    if not domain:
+        return ""
+    path = os.path.join(COMMON_DIR, "unslop_skills", domain, "skill.md")
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return ""
+
+def load_style_guide():
+    path = os.path.join(COMMON_DIR, "HARD_CONSTRAINTS.md")
+    rules = []
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("|") and not line.startswith("| Rule") and not line.startswith("| description") and not line.startswith("|---"):
+                    parts = [p.strip() for p in re.split(r'(?<!\\)\|', line) if p.strip()]
+                    if len(parts) >= 2:
+                        pattern = parts[1].strip('`').replace(r'\|', '|')
+                        replacement = parts[2].strip('`').replace(r'\|', '|') if len(parts) > 2 else ""
+                        rules.append((pattern, replacement))
+    return rules
+
+def load_writing_style():
+    content = load_skill_content("WritingStyle")
+    # Extract blacklist words
+    blacklist = []
+    matches = re.findall(r'- \*\*.+?\*\*: (.+)', content)
+    for m in matches:
+        # Split by comma and clean
+        words = [w.strip() for w in m.split(',')]
+        blacklist.extend(words)
+    return content, blacklist
+
+# --- DETERMINISTIC CLEANUP ---
+
+def deterministic_scrub(text):
+    """Hard-fixes that MUST be applied regardless of LLM output."""
+    lines = text.split('\n')
+    processed_lines = []
+    
+    # 1. Load rules
+    guide_rules = load_style_guide()
+    _, blacklist_words = load_writing_style()
+    
+    # Absolute bans are now loaded automatically via the HARD_CONSTRAINTS.md regex rules
+    # This ensures cross-tool compatibility without hardcoding here.
+
+    in_metadata = True
+    for line in lines:
+        if in_metadata:
+            if line.strip() == "" and len(processed_lines) > 0:
+                in_metadata = False
+            processed_lines.append(line)
+            continue
+            
+        # Skip Markdown structures: images, links, headers, comments
+        if line.startswith("#") or line.startswith("!") or line.startswith("<!--") or line.strip().startswith("- **"):
+            processed_lines.append(line)
+            continue
+            
+        # Apply Guide Rules
+        for pattern, replacement in guide_rules:
+            try:
+                # Use word boundaries or logic to avoid breaking stuff? 
+                # For now, let's just avoid replacing symbols if they look like MD
+                if pattern in ["!", "?", ":", ";"] and ("](" in line or "http" in line):
+                    continue
+                line = re.sub(pattern, replacement, line)
+            except: pass
+            
+        # (Bans are now applied as part of guide_rules)
+            
+        processed_lines.append(line)
+        
+    return '\n'.join(processed_lines)
+
+# --- LLM POLISH (Conceptual - would be called via Agent in real use) ---
+# NOTE: This script primarily handles the "Scrubbing" + "Prompt Preparation".
+# The actual LLM call is usually performed by the orchestration agent using 
+# the prompt generated here.
+
+def build_polish_prompt(source_text, thoughts="", style="casual", unslop_domain=""):
+    humanizer_rules = load_skill_content("humanizer-zh")
+    subtranslator_rules = load_readme_content("subtranslator")
+    writing_style, _ = load_writing_style()
+    verbalizer_rules = load_readme_content("verbalizer")
+    unslop_rules = load_unslop_rules(unslop_domain)
+    unslop_section = f"\n### UNSLOP CONSTRAINTS (FORBIDDEN PATTERNS)\n{unslop_rules}\n- TRANSLATION MODE STRICT RULE: When applying these unslop constraints, focus ONLY on adjusting vocabulary and local sentence structure to avoid AI flavor. DO NOT overly rewrite, summarize, or change the original intent of the sentences.\n" if unslop_rules else ""
+    
+    # Fusion of thoughts as a preamble
+    thoughts_header = f"> **译者导读**: {thoughts}\n\n" if thoughts else ""
+
+    prompt = f"""
+### ROLE
+You are a Senior Tech Columnist and Professional Translator. 
+You transform technical content into "Human-Native" Chinese.
+
+### GUIDELINES (FOUR-FOLD GUARANTEE)
+1. DE-AI FLAVOR: {humanizer_rules[:1500]}
+2. NATIVE FLOW: {subtranslator_rules[:1500]}
+3. PERSONAL STYLE: {writing_style[:1500]}
+4. PERSONA & TONE: {verbalizer_rules[:1000]} (Target Style: {style})
+{unslop_section}
+
+### CRITICAL CONSTRAINTS (HARD RULES)
+- NO long dashes (——). Use commas, colons or separate sentences.
+- NO "translationese" (e.g., avoid "当...时", "被...", "不可或缺").
+- NO repetitive sentence structures. Vary the pace.
+- NO metadata modification (Keep Frontmatter intact).
+- USE professional terminology (e.g., FDE, Agentic Infrastructure).
+- PRESERVE structure: If the source uses bullet points or numbered lists, you MUST maintain that exact structure. Do NOT collapse lists into paragraphs.
+
+### INPUT TEXT
+{thoughts_header}{source_text}
+
+### OUTPUT
+Return ONLY the polished markdown content.
+"""
+    return prompt
+
+def build_rewriting_prompt(source_text, thoughts="", style="intellectual", unslop_domain=""):
+    humanizer_rules = load_skill_content("humanizer-zh")
+    writing_style, _ = load_writing_style()
+    verbalizer_rules = load_readme_content("verbalizer")
+    unslop_rules = load_unslop_rules(unslop_domain)
+    unslop_section = f"\n### UNSLOP CONSTRAINTS (FORBIDDEN PATTERNS)\n{unslop_rules}\n" if unslop_rules else ""
+    
+    prompt = f"""
+### ROLE
+你是一名数据治理语境下的资深研究者。你不仅对全球数据技术趋势有深刻见解，更熟悉中国国内的政策环境（如数据要素、数据资产、DCMM 贯标、可信数据空间等）。
+
+### TASK
+请根据原文内容，以资深专家的视角“改写”生成一篇高水平的技术深度观察文章。
+
+### WRITING STRATEGY
+1. **开头引入 (The Hook)**：结合国内 AI 或数据建设热点引出话题，形式要像同事间分享深度见解，避免空洞。
+2. **正文改写 (Completeness First)**：
+    - **必须涵盖原文的所有核心点位**（例如原文提到的 10 个预测/要点）。即便为了逻辑连贯进行了整合，也绝对不能遗漏原文中任何一个点的核心内涵。
+    - **深度融合**：分析每个点在国内环境的适用性，与国内热点（数据资产化、数科公司运营等）深度关联。
+3. **专家风范 (Expert Style)**：
+    - **严控翻译腔**：严禁出现“这不仅是...更是...”、“不仅仅是...而且是...”等西化结构。
+    - **文字洗练**：去除所有废话和 AI 式的修饰词。
+    - **应用积累模式**：遵循以下风格要点：{writing_style[:1000]}
+4. **结尾总结 (The Three-Part Finale)**：
+    文章最后必须包含以下三个板块，结构清晰：
+    - **【核心要点提炼】**：用 Bullet Points 简洁明了地总结全文核心洞察。
+    - **【原文金句摘录】**：挑出 3-5 句原文中最具洞见、最值得品味的句子。
+    - **【国内落地启示】**：针对国内企业数据部门、数字化管理者、数科公司、技术供应商提出具体、可操作的启示（涉及数据建设、DCMM、数据要素市场等）。
+
+### GUIDELINES
+- DE-AI FLAVOR: {humanizer_rules[:1000]}
+- PERSONA & TONE: {verbalizer_rules[:500]} (Target Style: {style})
+- **人称控制**：除必要主观判断外，尽量将观点融入叙述，读起来像一篇连贯的独立观察。
+{unslop_section}
+### EDITORS THOUGHTS
+{thoughts if thoughts else "（无额外思考，按专业视角自由发挥）"}
+
+### INPUT TEXT (ORIGINAL)
+{source_text}
+
+### OUTPUT
+直接返回改写后的 Markdown 内容。
+"""
+    return prompt
+
+if __name__ == "__main__":
+    input_file = sys.argv[1]
+    output_file = input_file
+    
+    mode = "rewriting"
+    thoughts = ""
+    style = "intellectual"
+    unslop_domain = ""
+    prompt_only = False
+
+    # Naive argument parsing
+    for i in range(len(sys.argv)):
+        if sys.argv[i] == "--mode" and i + 1 < len(sys.argv):
+            mode = sys.argv[i+1]
+        if sys.argv[i] == "--thoughts" and i + 1 < len(sys.argv):
+            thoughts = sys.argv[i+1]
+        if sys.argv[i] == "--style" and i + 1 < len(sys.argv):
+            style = sys.argv[i+1]
+        if sys.argv[i] == "--unslop" and i + 1 < len(sys.argv):
+            unslop_domain = sys.argv[i+1]
+        if sys.argv[i] == "--prompt-only":
+            prompt_only = True
+        if i == 2 and not sys.argv[i].startswith("--"):
+            output_file = sys.argv[i]
+
+    with open(input_file, 'r', encoding='utf-8') as f:
+        text = f.read()
+    
+    if prompt_only:
+        if mode == "rewriting":
+            print(build_rewriting_prompt(text, thoughts, style, unslop_domain))
+        else:
+            print(build_polish_prompt(text, thoughts, style, unslop_domain))
+        sys.exit(0)
+        
+    # Deterministic Scrubbing (The "Hard Fixes")
+    print("Scrubbing AI artifacts and applying terminology...")
+    text = deterministic_scrub(text)
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(text)
+    print(f"Polished content saved to {output_file}.")

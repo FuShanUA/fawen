@@ -1105,10 +1105,32 @@ class BatchEngine:
                     vid = [f for f in os.listdir(workdir) if f.endswith((".mp4", ".mkv", ".webm")) and "_hardsub" not in f][0]
                     ass = bi.replace(".srt", ".ass")
                     out = vid.replace(".mp4", "_hardsub.mp4").replace(".mkv", "_hardsub.mp4")
+                    # Upscale low-res sources so subtitles render crisp (avoids blurry
+                    # subs on 360p/480p). Probe source dims; if short edge < 720, scale
+                    # up keeping aspect ratio (short edge -> 720). Pass the target canvas
+                    # to both srt_to_ass (PlayResX/Y + font scaling) and burn_engine (scale filter).
+                    ass_extra, burn_extra = [], []
+                    probe_cmd = [shutil.which("ffprobe") or "ffprobe", "-v", "error",
+                                 "-select_streams", "v:0",
+                                 "-show_entries", "stream=width,height",
+                                 "-of", "csv=p=0", os.path.join(workdir, vid)]
+                    try:
+                        probe = subprocess.check_output(probe_cmd, text=True, stderr=subprocess.DEVNULL).strip()
+                        sw, sh = (int(x) for x in probe.split(",")[:2])
+                        short = min(sw, sh)
+                        if short < 720:
+                            scale = 720.0 / short
+                            tw, th = int(round(sw * scale)), int(round(sh * scale))
+                            tw -= tw % 2; th -= th % 2  # even dims (ffmpeg scale requires)
+                            ass_extra = ["--width", str(tw), "--height", str(th)]
+                            burn_extra = ["--target-width", str(tw), "--target-height", str(th)]
+                            print(f"📐 Source {sw}x{sh} < 720p — upscaling burn canvas to {tw}x{th} for crisp subtitles.")
+                    except Exception as e:
+                        print(f"⚠️ Could not probe video dims for upscale ({e}); burning at native resolution.")
                     # Step 1: SRT to ASS (runs 0.0% to 2.0%)
-                    if self.run_process(task, "BR", list(SRT2ASS_CMD) + [os.path.join(workdir, bi), os.path.join(workdir, ass)], start_pct=0.0, end_pct=2.0):
+                    if self.run_process(task, "BR", list(SRT2ASS_CMD) + [os.path.join(workdir, bi), os.path.join(workdir, ass)] + ass_extra, start_pct=0.0, end_pct=2.0):
                         # Step 2: Burn Subtitles (runs 2.0% to 100.0%)
-                        cmd = list(BURNSUB_CMD) + [os.path.join(workdir, vid), os.path.join(workdir, ass), os.path.join(workdir, out), "--headless", "--quality", getattr(self, "quality", "high")]
+                        cmd = list(BURNSUB_CMD) + [os.path.join(workdir, vid), os.path.join(workdir, ass), os.path.join(workdir, out), "--headless", "--quality", getattr(self, "quality", "high")] + burn_extra
                         start_pct = 2.0
                         end_pct = 100.0
                     else: continue

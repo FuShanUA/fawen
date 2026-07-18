@@ -9,6 +9,7 @@ import ctypes
 import shutil
 import tempfile
 import contextlib
+import unicodedata
 from typing import Any, Dict, Optional, Set, List, Union
 
 from rich.console import Console
@@ -68,6 +69,7 @@ NODE_EXE = discover_node()
 BATCH_SCRIPT = os.path.join(CURRENT_DIR, "autosub_batch_pro.py")
 SINGLE_SCRIPT = os.path.join(CURRENT_DIR, "autosub.py")
 DEFAULT_OUTPUT_ROOT = r"/Users/shanfu/cc/Projects"
+GDRIVE_FOLDER_ID = "18iAFFSuHQmZlxVN0dri1Gbje9SmpS96f"
 
 def discover_initial_cookies():
     """Finds cookies.txt in prioritized locations for the launcher."""
@@ -117,6 +119,36 @@ def clean_title_text(title, playlist_title=None):
 
     return title
 
+def cjk_display_width(s: str) -> int:
+    """Calculate terminal display width of a string.
+    CJK characters (East Asian Wide/Fullwidth) occupy 2 cells, others 1."""
+    width = 0
+    for c in str(s):
+        ea = unicodedata.east_asian_width(c)
+        width += 2 if ea in ('F', 'W') else 1
+    return width
+
+
+def cjk_truncate(s: str, max_width: int, ellipsis: str = '…') -> str:
+    """Truncate a string to fit within max_width terminal display cells."""
+    s = str(s)
+    if cjk_display_width(s) <= max_width:
+        return s
+    ellipsis_w = cjk_display_width(ellipsis)
+    target = max_width - ellipsis_w
+    if target <= 0:
+        return ellipsis
+    result = []
+    w = 0
+    for c in s:
+        cw = 2 if unicodedata.east_asian_width(c) in ('F', 'W') else 1
+        if w + cw > target:
+            break
+        result.append(c)
+        w += cw
+    return ''.join(result) + ellipsis
+
+
 def check_all_completed(state_data: Any) -> bool:
     """Helper to check if all tasks in the existing state file are completed."""
     if not isinstance(state_data, dict) or not state_data:
@@ -125,14 +157,21 @@ def check_all_completed(state_data: Any) -> bool:
     tasks_map = state_data.get("tasks", state_data) if "tasks" in state_data else state_data
     if isinstance(tasks_map, dict) and tasks_map:
         for task_id, task_d in tasks_map.items():
-            if not isinstance(task_d, dict):
-                return False
+            # Skip non-task metadata keys like "global_pause", "time" etc.
+            if task_id in ("global_pause", "time") or not isinstance(task_d, dict):
+                continue
             status = task_d.get("status", "")
             pcts = task_d.get("pcts", {})
-            is_done = (status == "完成") or (isinstance(pcts, dict) and pcts.get("BR", 0.0) >= 100.0)
+            is_done = (status == "完成") or (
+                isinstance(pcts, dict) and 
+                pcts.get("BR", 0.0) >= 100.0 and 
+                pcts.get("GD", 100.0) >= 100.0 and 
+                pcts.get("BI", 100.0) >= 100.0
+            )
             if not is_done:
                 return False
-        return True
+        # Only return True if we found at least one actual task entry
+        return any(isinstance(v, dict) and k not in ("global_pause", "time") for k, v in tasks_map.items())
     return False
 
 import contextlib
@@ -339,6 +378,229 @@ def is_project_running(project_path):
             pass
     return False, None
 
+# ---------------------------------------------------------------------------
+# Model Selection Onboarding
+# ---------------------------------------------------------------------------
+
+def _load_env_file() -> dict:
+    """Parse the local .env for API key values (non-sensitive check)."""
+    env_path = os.path.join(CURRENT_DIR, ".env")
+    result = {}
+    if not os.path.exists(env_path):
+        return result
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, v = line.split('=', 1)
+                v = v.strip().strip('"').strip("'")
+                if v:
+                    result[k.strip()] = v
+    except:
+        pass
+    return result
+
+
+def _load_settings() -> dict:
+    """Load settings.json (preferred) or defaults.json."""
+    s_path = os.path.join(CURRENT_DIR, "settings.json")
+    d_path = os.path.join(CURRENT_DIR, "defaults.json")
+    target = s_path if os.path.exists(s_path) else d_path
+    if os.path.exists(target):
+        try:
+            with open(target, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    return {"llm_model": "gemini-3-flash-preview", "style": "auto"}
+
+
+def _save_settings(data: dict):
+    """Persist updated settings to settings.json."""
+    s_path = os.path.join(CURRENT_DIR, "settings.json")
+    with open(s_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+_PROVIDER_CATALOG = [
+    {
+        "name": "Google Gemini / Vertex AI",
+        "keys": ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT",
+                 "VERTEX_SA_KEY_PATH", "GOOGLE_APPLICATION_CREDENTIALS"],
+        "models": [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.0-flash",
+            "gemini-3.1-flash-preview",
+            "gemini-3-flash-preview",
+            "gemini-3.1-pro-preview",
+        ],
+        "default": "gemini-2.5-flash",
+    },
+    {
+        "name": "OpenAI",
+        "keys": ["OPENAI_API_KEY"],
+        "models": ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "o4-mini"],
+        "default": "gpt-4o",
+    },
+    {
+        "name": "DeepSeek",
+        "keys": ["DEEPSEEK_API_KEY"],
+        "models": ["deepseek-chat", "deepseek-reasoner"],
+        "default": "deepseek-chat",
+    },
+    {
+        "name": "DashScope (Alibaba Cloud)",
+        "keys": ["DASHSCOPE_API_KEY"],
+        "models": ["deepseek-v4-pro", "qwen-plus", "qwen-max", "qwen-turbo"],
+        "default": "deepseek-v4-pro",
+    },
+    {
+        "name": "Moonshot (Kimi)",
+        "keys": ["MOONSHOT_API_KEY"],
+        "models": ["kimi-k2", "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+        "default": "kimi-k2",
+    },
+    {
+        "name": "ZhipuAI (GLM)",
+        "keys": ["ZHIPUAI_API_KEY", "ZHIPU_API_KEY"],
+        "models": ["glm-4", "glm-4-flash", "glm-4-plus", "glm-4-long"],
+        "default": "glm-4",
+    },
+    {
+        "name": "SiliconFlow",
+        "keys": ["SILICONFLOW_API_KEY"],
+        "models": [
+            "deepseek-ai/DeepSeek-V3",
+            "deepseek-ai/DeepSeek-R1",
+            "Qwen/Qwen2.5-72B-Instruct",
+        ],
+        "default": "deepseek-ai/DeepSeek-V3",
+    },
+]
+
+
+def _test_model_connectivity(model_name: str) -> tuple:
+    """Make a minimal test call to verify the model+provider is reachable.
+    Returns (success: bool, message: str)."""
+    common_dir = os.path.join(TOOLS_DIR, "common")
+    if common_dir not in sys.path:
+        sys.path.insert(0, common_dir)
+    try:
+        from llm_utils import LLMClient  # type: ignore
+        client = LLMClient()
+        provider = client._get_provider(model_name)
+        ok, result = client.generate_content_with_provider(
+            prompt="Reply with exactly one word: PONG",
+            provider=provider,
+            model_name=model_name,
+            fallback=False,
+        )
+        if ok and result:
+            return True, result.strip()[:120]
+        return False, result or "(空响应)"
+    except Exception as e:
+        return False, str(e)
+
+
+def onboard_model_selection():
+    """Interactive model provider / model selection step.
+    Called during launcher onboarding; defaults to no change."""
+    settings = _load_settings()
+    current_model = settings.get("llm_model", "gemini-3-flash-preview")
+
+    console.print(f"\n[dim]翻译模型: [bold cyan]{current_model}[/bold cyan][/dim]")
+    if not Confirm.ask("是否修改模型设置?", default=False):
+        return
+
+    env_vars = _load_env_file()
+    # Merge with live os.environ so cloud-injected keys are also visible
+    combined = {**env_vars, **{k: v for k, v in os.environ.items() if v}}
+
+    available = [
+        p for p in _PROVIDER_CATALOG
+        if any(combined.get(k) for k in p["keys"])
+    ]
+
+    if not available:
+        console.print(
+            Panel(
+                "未在 [cyan].env[/] 中找到任何可用的 API 密钥。\n"
+                "请先配置至少一个厂商的密钥后重试。",
+                title="[bold yellow]⚠️  无可用厂商[/]",
+                border_style="yellow",
+            )
+        )
+        return
+
+    while True:
+        # ── Step 1: Choose provider ──────────────────────────────────────────
+        console.print("\n[bold cyan]可用模型厂商：[/]")
+        for i, p in enumerate(available, 1):
+            console.print(f"  [bold]{i}.[/] {p['name']}")
+
+        prov_choice = Prompt.ask(
+            "请选择厂商编号",
+            choices=[str(i) for i in range(1, len(available) + 1)],
+            default="1",
+        )
+        selected = available[int(prov_choice) - 1]
+
+        # ── Step 2: Choose model ─────────────────────────────────────────────
+        models = selected["models"]
+        default_model = selected["default"]
+
+        console.print(f"\n[bold cyan]{selected['name']} 可选模型：[/]")
+        for i, m in enumerate(models, 1):
+            tag = " [dim green](推荐)[/dim green]" if m == default_model else ""
+            console.print(f"  [bold]{i}.[/] {m}{tag}")
+        console.print(f"  [bold]c.[/] 手动输入模型名称")
+
+        model_raw = Prompt.ask("请选择模型编号或输入 c", default="1")
+
+        if model_raw.strip().lower() == 'c':
+            chosen_model = Prompt.ask("请输入完整模型名称").strip()
+        else:
+            try:
+                chosen_model = models[int(model_raw.strip()) - 1]
+            except (ValueError, IndexError):
+                console.print("[red]无效选择，请重试。[/]")
+                continue
+
+        if not chosen_model:
+            console.print("[red]模型名称不能为空，请重试。[/]")
+            continue
+
+        # ── Step 3: Connectivity test ────────────────────────────────────────
+        with console.status(
+            f"[bold blue]正在测试 {selected['name']} · {chosen_model} 连通性...[/]"
+        ):
+            ok, msg = _test_model_connectivity(chosen_model)
+
+        if ok:
+            console.print(f"[bold green]✅ 连接成功！[/] 响应: [dim]{msg}[/dim]")
+            settings["llm_model"] = chosen_model
+            settings["llm_vendor"] = selected["name"]
+            _save_settings(settings)
+            console.print(
+                f"\n✨ 模型已更新为 [bold cyan]{chosen_model}[/bold cyan]，配置已保存。"
+            )
+            break
+        else:
+            console.print(
+                Panel(
+                    f"[bold red]❌ 连接测试失败[/bold red]\n\n{msg[:400]}",
+                    title=f"{selected['name']} · {chosen_model}",
+                    border_style="red",
+                )
+            )
+            if not Confirm.ask("是否重新选择?", default=True):
+                console.print("[dim]模型设置未变更。[/dim]")
+                break
+
+
 def main():
     console.print("[bold cyan]========================================================[/]")
     console.print("[bold cyan]              AutoSub 交互式任务启动器[/]")
@@ -397,16 +659,24 @@ def main():
                 cookies_path = None
                 browser = None
                 do_sync = True
+                no_sequence = False
                 
                 if isinstance(state_data, dict):
                     # Robust state check: support both nested "tasks" structure and flat task list
                     tasks = state_data.get("tasks", state_data) if "tasks" in state_data else state_data
                     if tasks:
-                        first_task = list(tasks.values())[0]
+                        # Find first actual task entry, skipping metadata keys like "global_pause", "time"
+                        first_task = next((v for k, v in tasks.items() if isinstance(v, dict) and k not in ("global_pause", "time")), None)
                         quality = first_task.get("quality", "high") if isinstance(first_task, dict) else "high"
                         cookies_path = state_data.get("cookies", first_task.get("cookies") if isinstance(first_task, dict) else None)
                         browser = state_data.get("browser", first_task.get("browser") if isinstance(first_task, dict) else None)
                         do_sync = state_data.get("gdsync", first_task.get("gdsync", True) if isinstance(first_task, dict) else True)
+                        # Auto deduct if previous project skipped sequence prefix
+                        workdir = first_task.get("workdir", "")
+                        if workdir:
+                            folder_name_only = os.path.basename(workdir)
+                            if not re.match(r'^\[\d+\]\s*-', folder_name_only):
+                                no_sequence = True
                 
                 cmd = [
                     PYTHON_EXE,
@@ -415,12 +685,17 @@ def main():
                     "--sub-dir-name", proj_name,
                     "--quality", quality
                 ]
+                if no_sequence:
+                    cmd.append("--no-sequence")
                 if cookies_path and os.path.exists(cookies_path):
                     cmd.extend(["--cookies", cookies_path])
                 elif browser:
                     cmd.extend(["--cookies-from-browser", browser])
+                do_bili = state_data.get("bili", True)
                 if do_sync:
                     cmd.append("--gdsync")
+                if do_bili:
+                    cmd.append("--bili-upload")
                 
                 launch_engine(cmd)
                 return
@@ -453,16 +728,24 @@ def main():
                 cookies_path = None
                 browser = None
                 do_sync = True
+                no_sequence = False
                 
                 if isinstance(state_data, dict):
                     # Robust state check: support both nested "tasks" structure and flat task list
                     tasks = state_data.get("tasks", state_data) if "tasks" in state_data else state_data
                     if tasks:
-                        first_task = list(tasks.values())[0]
+                        # Find first actual task entry, skipping metadata keys like "global_pause", "time"
+                        first_task = next((v for k, v in tasks.items() if isinstance(v, dict) and k not in ("global_pause", "time")), None)
                         quality = first_task.get("quality", "high") if isinstance(first_task, dict) else "high"
                         cookies_path = state_data.get("cookies", first_task.get("cookies") if isinstance(first_task, dict) else None)
                         browser = state_data.get("browser", first_task.get("browser") if isinstance(first_task, dict) else None)
                         do_sync = state_data.get("gdsync", first_task.get("gdsync", True) if isinstance(first_task, dict) else True)
+                        # Auto deduct if previous project skipped sequence prefix
+                        workdir = first_task.get("workdir", "")
+                        if workdir:
+                            folder_name_only = os.path.basename(workdir)
+                            if not re.match(r'^\[\d+\]\s*-', folder_name_only):
+                                no_sequence = True
                 
                 cmd = [
                     PYTHON_EXE,
@@ -471,12 +754,17 @@ def main():
                     "--sub-dir-name", proj_name,
                     "--quality", quality
                 ]
+                if no_sequence:
+                    cmd.append("--no-sequence")
                 if cookies_path and os.path.exists(cookies_path):
                     cmd.extend(["--cookies", cookies_path])
                 elif browser:
                     cmd.extend(["--cookies-from-browser", browser])
+                do_bili = state_data.get("bili", True)
                 if do_sync:
                     cmd.append("--gdsync")
+                if do_bili:
+                    cmd.append("--bili-upload")
                 
                 launch_engine(cmd)
                 return
@@ -595,20 +883,40 @@ def main():
     clean_title = re.sub(r'[\\/*?:"<>|_]', ' ', playlist_title).strip()
 
     # 2. Show Summary Table
-    table = Table(title=f"\n[bold cyan]内容预览:[/] {playlist_title}", box=box.SIMPLE_HEAD, expand=False)
-    table.add_column("序号", style="bold cyan")
-    table.add_column("时长", justify="right", style="green")
-    table.add_column("视频名称")
+    term_w = console.width
+    idx_w = 6
+    dur_w = 10
+    # padding: 3 cols * 2 = 6 cells
+    title_w = max(20, term_w - idx_w - dur_w - 6)
+
+    # Print title separately to avoid Rich's CJK title-width bug
+    console.print()
+    title_content = f"内容预览: {playlist_title}"
+    title_display_w = cjk_display_width(title_content)
+    pad_left = max(0, (term_w - title_display_w) // 2)
+    console.print(' ' * pad_left + f"[bold cyan]内容预览:[/] {playlist_title}")
+
+    table = Table(
+        box=box.SIMPLE_HEAD,
+        expand=True,
+        border_style="bright_blue"
+    )
+    table.add_column("序号", width=idx_w, style="bold cyan")
+    table.add_column("时长", width=dur_w, justify="right", style="green")
+    table.add_column("视频名称", width=title_w, overflow="ellipsis", no_wrap=True)
 
     durations = []
     for i, entry in enumerate(entries, 1):
         d = entry.get('duration')
         durations.append((i, d if d is not None else 0))
         display_title = clean_title_text(entry.get('title', '未知视频'), playlist_title)
+        # CJK-aware truncation to prevent column overflow
+        display_title = cjk_truncate(display_title, title_w)
         table.add_row(str(i), format_duration(d), display_title)
     console.print(table)
 
     # 3. Suggestions & Folder
+    use_sequence = True
     exclude_input = ""
     if not is_single_video:
         exclude_suggestion = ""
@@ -619,10 +927,15 @@ def main():
                 exclude_suggestion = f"{shortest[0]},{longest[0]}"
                 console.print(f"\n💡 [bold green]智能建议：[/]建议排除最短视频 [bold]#{shortest[0]}[/] 和最长视频 [bold]#{longest[0]}[/]")
         exclude_input = Prompt.ask("\n视频选择 (如 1,3,5 排除; [bold green]+2,4,6[/] 仅做; 1-5 范围)", default="")
+        use_sequence = Confirm.ask("\n是否在视频文件夹前添加序列号 (原频道列表推荐 Yes，个人定制推荐 No)?", default=True)
 
     folder_name = Prompt.ask("\n项目保存文件夹名称", default=clean_title)
     do_sync = Confirm.ask("\n是否同步到 Google Drive?", default=True)
+    do_bili = Confirm.ask("\n是否上传到 Bilibili? (分区/标签/简介/合集按视频自动生成)", default=True)
     quality = Prompt.ask("\n选择压制字幕画质 (standard: 标准质量, high: 高清原画, lossless: 无损超清)", choices=["standard", "high", "lossless"], default="high")
+
+    # 3.5 Model Selection (optional, default: no change)
+    onboard_model_selection()
 
     # 4. Engine Assignment
     if is_single_video:
@@ -630,6 +943,8 @@ def main():
         cmd = [ PYTHON_EXE, target_script, url, "--output-dir", DEFAULT_OUTPUT_ROOT, "--project-name", folder_name, "--headless", "--quality", quality ]
         if current_cookies: cmd.extend(["--cookies", current_cookies])
         elif current_browser: cmd.extend(["--cookies-from-browser", current_browser])
+        if do_sync: cmd.extend(["--sync-gdrive", GDRIVE_FOLDER_ID])
+        if do_bili: cmd.append("--bili-upload")
     else:
         # Pre-seed the batch_state.json to avoid redundant yt-dlp fetch in batch_v4
         project_dir = os.path.join(DEFAULT_OUTPUT_ROOT, folder_name)
@@ -698,23 +1013,31 @@ def main():
 
                 vid_id = entry.get('id') or 'Unknown'
                 safe_title = re.sub(r'[\\/*?:"<>|]', '_', title).strip()[:80]
-                workdir = os.path.join(project_dir, f"[{idx:02d}] - {safe_title} [{vid_id}]")
+                if use_sequence:
+                    workdir = os.path.join(project_dir, f"[{idx:02d}] - {safe_title} [{vid_id}]")
+                else:
+                    workdir = os.path.join(project_dir, f"{safe_title} [{vid_id}]")
 
                 task_map[str(idx)] = {
                     "url": entry.get('webpage_url') or entry.get('url'),
                     "title": title, "vid_id": vid_id, "uid": idx, "workdir": workdir,
                     "duration": format_duration(entry.get('duration')),
                     "status": "等待中", "error": None, "is_paused": False,
-                    "pcts": {"DL": 0.0, "TR": 0.0, "TL": 0.0, "MR": 0.0, "BR": 0.0, "GD": 0.0},
+                    "pcts": {"DL": 0.0, "TR": 0.0, "TL": 0.0, "MR": 0.0, "BR": 0.0, "GD": 0.0, "BI": 0.0},
                     "queued_stages": ["DL"]
                 }
 
+            # Persist global flags so resume can restore them
+            task_map["bili"] = do_bili
+            task_map["gdsync"] = do_sync
             with open(state_path, "w", encoding="utf-8") as f:
                 json.dump(task_map, f, ensure_ascii=False, indent=2)
 
         target_script = BATCH_SCRIPT
         # If we seeded the state, we don't need to pass --urls to avoid re-expansion conflicts
         cmd = [ PYTHON_EXE, target_script, "--output", DEFAULT_OUTPUT_ROOT, "--sub-dir-name", folder_name, "--quality", quality ]
+        if not use_sequence:
+            cmd.append("--no-sequence")
         if current_cookies: cmd.extend(["--cookies", current_cookies])
         elif current_browser: cmd.extend(["--cookies-from-browser", current_browser])
         sel = exclude_input.strip()
@@ -726,6 +1049,7 @@ def main():
             else:
                 cmd.extend(["--exclude", sel])
         if do_sync: cmd.append("--gdsync")
+        if do_bili: cmd.append("--bili-upload")
 
     console.print(f"\n[bold green]🚀 启动 {'单视频处理' if is_single_video else '批处理'} 引擎...[/]")
     launch_engine(cmd)

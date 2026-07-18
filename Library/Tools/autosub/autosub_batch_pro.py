@@ -7,6 +7,7 @@ for path in ["/opt/homebrew/bin", "/usr/local/bin"]:
         os.environ["PATH"] = path + os.pathsep + os.environ.get("PATH", "")
 
 import re
+import unicodedata
 import time
 import json
 import math
@@ -142,12 +143,10 @@ from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field, asdict
 
 # UI & Tools
-from rich.console import Console
+from rich.console import Console, Group
+from rich.cells import cell_len
 from rich.table import Table
 from rich.live import Live
-from rich.panel import Panel
-from rich.layout import Layout
-from rich.align import Align
 from rich.text import Text
 from rich import box
 
@@ -165,6 +164,10 @@ _p = CURRENT_DIR
 for _ in range(3): _p = os.path.dirname(_p)
 PROJECT_ROOT = _p if os.path.basename(_p).lower() != "library" else os.path.dirname(_p)
 DEFAULT_OUTPUT_ROOT = os.path.join(PROJECT_ROOT, "Projects")
+
+# Reuse the canonical Bilibili upload API from the base autosub module.
+sys.path.insert(0, CURRENT_DIR)
+from autosub import build_bili_cmd, run_bili_cmd  # noqa: E402
 
 # --- 核心工具指令 ---
 VENV_DIR = os.path.join(CURRENT_DIR, ".venv")
@@ -258,6 +261,36 @@ def clean_title_text(title, playlist_title=None):
 
     return title
 
+def cjk_display_width(s: str) -> int:
+    """Calculate terminal display width of a string.
+    CJK characters (East Asian Wide/Fullwidth) occupy 2 cells, others 1."""
+    width = 0
+    for c in str(s):
+        ea = unicodedata.east_asian_width(c)
+        width += 2 if ea in ('F', 'W') else 1
+    return width
+
+
+def cjk_truncate(s: str, max_width: int, ellipsis: str = '...') -> str:
+    """Truncate a string to fit within max_width terminal display cells."""
+    s = str(s)
+    if cjk_display_width(s) <= max_width:
+        return s
+    ellipsis_w = cjk_display_width(ellipsis)
+    target = max_width - ellipsis_w
+    if target <= 0:
+        return ellipsis
+    result = []
+    w = 0
+    for c in s:
+        cw = 2 if unicodedata.east_asian_width(c) in ('F', 'W') else 1
+        if w + cw > target:
+            break
+        result.append(c)
+        w += cw
+    return ''.join(result) + ellipsis
+
+
 def parse_duration_to_seconds(dur_str):
     if not dur_str: return 0
     if ":" in dur_str:
@@ -336,7 +369,7 @@ class SubTask:
     title: str = "加载中..."
     duration: str = "未知"
     status: str = "排队中"  # QUEUED, ACTIVE (STAGE), DONE, FAILED, PAUSED
-    pcts: Dict[str, float] = field(default_factory=lambda: {"DL": 0.0, "TR": 0.0, "TL": 0.0, "MR": 0.0, "BR": 0.0, "GD": 0.0})
+    pcts: Dict[str, float] = field(default_factory=lambda: {"DL": 0.0, "TR": 0.0, "TL": 0.0, "MR": 0.0, "BR": 0.0, "GD": 0.0, "BI": 0.0})
     workdir: Optional[str] = None
     error: Optional[str] = None
     pid: Optional[int] = None
@@ -389,6 +422,7 @@ class ResourceManager:
         self.mr_sem = threading.Semaphore(20)  # 字幕合成 (极轻量)
         self.io_sem = threading.Semaphore(6)   # 下载/读取 (I/O密集)
         self.sync_sem = threading.Semaphore(4) # 同步 (I/O密集)
+        self.bili_sem = threading.Semaphore(4) # B站上传 (I/O密集)
 
         self.lock = threading.Lock()
         self.global_pause = False
@@ -399,6 +433,7 @@ class ResourceManager:
         if stage == "TL": return self.api_sem
         if stage == "MR": return self.mr_sem
         if stage == "GD": return self.sync_sem
+        if stage == "BI": return self.bili_sem
         return self.io_sem
 
 # --- 核心引擎 ---
@@ -434,6 +469,7 @@ class BatchEngine:
         self.task_map: Dict[int, SubTask] = {}
         self.lock = threading.RLock()
         self.abort = False
+        self.no_sequence = False
 
         # Single instance lock for the project
         self.lock_file = os.path.join(self.project_dir, "batch_engine.lock")
@@ -447,9 +483,11 @@ class BatchEngine:
                     try:
                         p = psutil.Process(old_pid)
                         cmdline = p.cmdline()
-                        # Robust check: verify the process command line contains the script name
                         if any("autosub_batch_pro.py" in arg for arg in cmdline):
-                            running = True
+                            import time as _time
+                            create_time = p.create_time()
+                            if (_time.time() - create_time) < 86400:
+                                running = True
                     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                         running = False
                 if running and old_pid != os.getpid():
@@ -461,7 +499,7 @@ class BatchEngine:
                     dash = Dashboard(self)
                     from rich.live import Live
                     try:
-                        with Live(dash.render(), console=dash.console, screen=True, refresh_per_second=4) as live:
+                        with Live(dash.render(), console=dash.console, screen=True, refresh_per_second=2) as live:
                             while True:
                                 # Reload state from disk to see updates from the active background process
                                 self.load_state_monitor()
@@ -486,6 +524,7 @@ class BatchEngine:
         self.cookie_path = self._discover_cookies()
 
         self.do_gdsync = False
+        self.do_bili = False
         self.gdsync_id = "18iAFFSuHQmZlxVN0dri1Gbje9SmpS96f"
         self.playlist_title = sub_dir_name or "AutoSub Batch Pro"
         self.quality = "high"
@@ -574,10 +613,19 @@ class BatchEngine:
                         if isinstance(tasks_source, dict):
                             with self.lock:
                                 for uid_str, d in tasks_source.items():
-                                    uid = int(uid_str)
+                                    # Skip non-task keys like "global_pause" that live alongside task entries
+                                    # in the flat batch_state.json format
+                                    if uid_str == "global_pause":
+                                        continue
+                                    if not isinstance(d, dict):
+                                        continue
+                                    try:
+                                        uid = int(uid_str)
+                                    except ValueError:
+                                        continue
                                     if uid in self.task_map:
                                         self.task_map[uid].is_paused = d.get("is_paused", False)
-                                # Also sync global pause
+                                # Also sync global pause — works for both nested and flat formats
                                 global_p = data.get("global_pause", False)
                                 if global_p != self.res.global_pause:
                                     self.res.global_pause = global_p
@@ -631,25 +679,39 @@ class BatchEngine:
             if os.path.exists(settings_path):
                 with open(settings_path, "r", encoding="utf-8") as f:
                     settings = json.load(f)
-                    if settings.get("cookie_path") and os.path.exists(settings["cookie_path"]):
-                        return settings["cookie_path"]
+                    cookie_val = settings.get("cookie_path") or settings.get("cookies")
+                    if cookie_val:
+                        if cookie_val in ["chrome", "firefox", "safari", "edge"]:
+                            return cookie_val
+                        if os.path.exists(cookie_val):
+                            return cookie_val
         except: pass
 
-        # 1. Fallback to browser on Mac (Prioritized to avoid invalid cookies.txt)
+        # 2. Fallback to browser on Mac (Prioritized to avoid invalid cookies.txt)
         if sys.platform == "darwin":
             return "chrome"
 
-        # 2. Priority paths
+        # 3. Dynamic priority paths
         paths = [
             os.path.join(CURRENT_DIR, "cookies.txt"),
-            r"D:\download\cookies.txt",
-            r"D:\Downloads\cookies.txt",
-            r"/Users/shanfu/cc/cookies.txt",
             os.path.join(TOOLS_DIR, "vdown", "cookies.txt")
         ]
         for p in paths:
             if os.path.exists(p): return p
         return ""
+
+    def _load_global_settings(self) -> dict:
+        """Loads model and style from settings.json or defaults.json."""
+        s_path = os.path.join(CURRENT_DIR, "settings.json")
+        d_path = os.path.join(CURRENT_DIR, "defaults.json")
+        
+        target = s_path if os.path.exists(s_path) else d_path
+        if os.path.exists(target):
+            try:
+                with open(target, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except: pass
+        return {"llm_model": "gemini-3-flash-preview", "style": "auto"}
 
     @contextlib.contextmanager
     def use_temp_cookies(self, cookies_path):
@@ -678,10 +740,19 @@ class BatchEngine:
         with self.lock:
             # 兼容 Launcher 格式：如果是 dict 形式的 map
             tasks_data = {str(t.uid): t.to_dict() for t in self.task_map.values()}
-            data = {"tasks": tasks_data, "time": time.time()}
+            data = {"tasks": tasks_data, "time": time.time(), "global_pause": self.res.global_pause}
         try:
-            with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump(tasks_data if "batch_state.json" in self.state_file else data, f, ensure_ascii=False, indent=2)
+            # CRITICAL: Always save global_pause even in flat batch_state.json format,
+            # so _pause_monitor can correctly sync global_pause from the state file.
+            # For batch_state.json, embed global_pause alongside the flat task map.
+            if "batch_state.json" in self.state_file:
+                flat_data = {**tasks_data, "global_pause": self.res.global_pause,
+                             "bili": self.do_bili, "gdsync": self.do_gdsync}
+                with open(self.state_file, "w", encoding="utf-8") as f:
+                    json.dump(flat_data, f, ensure_ascii=False, indent=2)
+            else:
+                with open(self.state_file, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
         except: pass
 
     def load_state(self):
@@ -711,12 +782,12 @@ class BatchEngine:
 
                     # 彻底自愈：不再解析可能损坏的 status 字符串，而是根据 pcts 数据重新推导
                     current_stage = "DL"
-                    for s in ["DL", "TR", "TL", "MR", "BR", "GD"]:
+                    for s in ["DL", "TR", "TL", "MR", "BR", "GD", "BI"]:
                         if t.pcts.get(s, 0.0) < 100.0:
                             current_stage = s
                             break
-                        elif s == "GD" and t.pcts.get(s, 0.0) >= 100.0:
-                            current_stage = "完成"
+                    else:
+                        current_stage = "完成"
 
                     if current_stage == "完成":
                         t.status = "完成"
@@ -777,6 +848,8 @@ class BatchEngine:
         vid_tag = task.vid_id if task.vid_id else "UnknownID"
         root = os.path.join(self.project_dir, task.sub_dir) if task.sub_dir else self.project_dir
         if not os.path.exists(root): os.makedirs(root, exist_ok=True)
+        if getattr(self, "no_sequence", False):
+            return os.path.join(root, f"{safe_title} [{vid_tag}]").strip().rstrip('. ')
         idx = task.playlist_index if task.playlist_index is not None else task.uid
         return os.path.join(root, f"[{idx:02d}] - {safe_title} [{vid_tag}]").strip().rstrip('. ')
 
@@ -789,6 +862,17 @@ class BatchEngine:
             if s <= 0: return "未知"
             return f"{s//60:02d}:{s%60:02d}"
         except: return "未知"
+
+    def get_video_dimensions(self, path):
+        """Returns (width, height) using ffprobe."""
+        try:
+            cmd = [FFPROBE_EXE, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path]
+            out = subprocess.check_output(cmd, creationflags=CREATE_NO_WINDOW).decode().strip()
+            if "x" in out:
+                w, h = out.split("x")
+                return int(w), int(h)
+        except: pass
+        return 1920, 1080
 
     def fetch_web_metadata(self, task: SubTask):
         """Use download.py to fetch title and duration from the web."""
@@ -877,27 +961,64 @@ class BatchEngine:
 
             # 4. 判定环节状态
             files = os.listdir(task.workdir)
-            
-            # --- 优雅自愈：如果存在超过 1MB 的 _hardsub 视频，但缺失了 .burn_complete，自动补全它以防重复压制 ---
-            has_hardsub = any("_hardsub" in f for f in files)
+           
+            # 前置检查：如果上传标记都已存在，直接判完成，无需检查中间产物
+            has_bili_done = os.path.exists(os.path.join(task.workdir, ".bili_uploaded"))
+            has_synced = os.path.exists(os.path.join(task.workdir, ".synced"))
+            # A task is complete when all ENABLED upload stages are done:
+            # - If bili upload is enabled, require .bili_uploaded
+            # - If gdsync is enabled, require .synced
+            # - If neither is enabled, hardsub+burn_complete is enough (checked below)
+            upload_done = (not self.do_bili or has_bili_done) and (not self.do_gdsync or has_synced)
+            if upload_done:
+                task.status = "完成"
+                for k in task.pcts: task.pcts[k] = 100.0
+                task.error = None
+                return
+
+            # --- 优雅自愈与校验：如果存在 _hardsub 视频，校验其时长并维护 .burn_complete 状态 ---
+            has_hardsub = any("_hardsub" in f and f.endswith((".mp4", ".mkv", ".webm")) for f in files)
             has_burn_complete = os.path.exists(os.path.join(task.workdir, ".burn_complete"))
-            if has_hardsub and not has_burn_complete:
+            if has_hardsub:
                 try:
-                    hardsub_files = [f for f in files if "_hardsub" in f]
+                    hardsub_files = [f for f in files if "_hardsub" in f and f.endswith((".mp4", ".mkv", ".webm"))]
                     if hardsub_files:
                         hardsub_path = os.path.join(task.workdir, hardsub_files[0])
-                        if os.path.exists(hardsub_path) and os.path.getsize(hardsub_path) > 1024 * 1024:
-                            with open(os.path.join(task.workdir, ".burn_complete"), "w", encoding="utf-8") as f:
-                                f.write("1")
-                            has_burn_complete = True
-                            logger.info(f"✨ Auto-repaired missing .burn_complete marker for task {task.uid} (found complete hardsub video)")
+                        dur_orig = parse_duration_to_seconds(task.duration)
+                        dur_hard = parse_duration_to_seconds(self.get_duration(hardsub_path))
+                        
+                        is_complete = False
+                        if dur_orig > 0 and dur_hard > 0:
+                            if abs(dur_orig - dur_hard) <= 3:
+                                is_complete = True
+                        elif dur_hard > 0 and not any(f.endswith((".mp4", ".mkv", ".webm")) and "_hardsub" not in f for f in files):
+                            # Original video is missing, but hardsub exists and has valid duration.
+                            is_complete = True
+                        
+                        if is_complete and os.path.getsize(hardsub_path) > 1024 * 1024:
+                            if not has_burn_complete:
+                                with open(os.path.join(task.workdir, ".burn_complete"), "w", encoding="utf-8") as f:
+                                    f.write("1")
+                                has_burn_complete = True
+                                logger.info(f"✨ Auto-repaired missing .burn_complete marker for task {task.uid} (found complete hardsub video)")
+                        else:
+                            # 毁尸灭迹：如果时长校验不通过，说明此前标记有误（可能是上次运行残留的假完成标记），必须强制删除以重新烧录
+                            if has_burn_complete:
+                                try:
+                                    os.remove(os.path.join(task.workdir, ".burn_complete"))
+                                except:
+                                    pass
+                                has_burn_complete = False
+                                logger.info(f"🗑️ Destroyed invalid .burn_complete marker for task {task.uid} (duration mismatch)")
                 except Exception as e:
-                    logger.error(f"Error auto-repairing .burn_complete for task {task.uid}: {e}")
+                    logger.error(f"Error validating .burn_complete for task {task.uid}: {e}")
 
             if has_hardsub and has_burn_complete:
-                if self.do_gdsync and not os.path.exists(os.path.join(task.workdir, ".synced")):
+                need_gd = self.do_gdsync and not os.path.exists(os.path.join(task.workdir, ".synced"))
+                need_bi = self.do_bili and not os.path.exists(os.path.join(task.workdir, ".bili_uploaded"))
+                if need_gd or need_bi:
                     task.status = "排队中 (GD)"
-                    task.pcts.update({"DL": 100, "TR": 100, "TL": 100, "MR": 100, "BR": 100, "GD": 0.0})
+                    task.pcts.update({"DL": 100, "TR": 100, "TL": 100, "MR": 100, "BR": 100, "GD": 0.0, "BI": 0.0})
                 else:
                     task.status = "完成"
                     for k in task.pcts: task.pcts[k] = 100.0
@@ -905,7 +1026,7 @@ class BatchEngine:
                 return
             if any(".bi.srt" in f for f in files):
                 task.status = "排队中 (BR)"
-                task.pcts.update({"DL": 100, "TR": 100, "TL": 100, "MR": 100, "BR": 0.0, "GD": 0.0})
+                task.pcts.update({"DL": 100, "TR": 100, "TL": 100, "MR": 100, "BR": 0.0, "GD": 0.0, "BI": 0.0})
                 task.error = None
                 return
             if any(re.search(r'(\.cn|\.zh)\.srt$', f) for f in files):
@@ -1093,7 +1214,10 @@ class BatchEngine:
                 elif "TL" in task.status:
                     stage = "TL"
                     srts = [f for f in os.listdir(workdir) if f.endswith(".srt") and not re.search(r'(\.zh|\.cn|\.bi)\.srt$', f)]
-                    cmd = list(SMART_TRANSLATE_CMD) + [os.path.join(workdir, srts[0])]
+                    settings = self._load_global_settings()
+                    model = settings.get("llm_model", "gemini-3-flash-preview")
+                    style = settings.get("style", "auto")
+                    cmd = list(SMART_TRANSLATE_CMD) + [os.path.join(workdir, srts[0]), "--model", model, "--style", style]
                 elif "MR" in task.status:
                     stage = "MR"
                     en = [f for f in os.listdir(workdir) if f.endswith(".srt") and not re.search(r'(\.zh|\.cn|\.bi)\.srt$', f)][0]
@@ -1105,30 +1229,37 @@ class BatchEngine:
                     vid = [f for f in os.listdir(workdir) if f.endswith((".mp4", ".mkv", ".webm")) and "_hardsub" not in f][0]
                     ass = bi.replace(".srt", ".ass")
                     out = vid.replace(".mp4", "_hardsub.mp4").replace(".mkv", "_hardsub.mp4")
+                    
+                    # Load and apply global subtitle styles
+                    settings = self._load_global_settings()
+                    ass_cmd = list(SRT2ASS_CMD) + [os.path.join(workdir, bi), os.path.join(workdir, ass)]
+                    if settings.get("layout"): ass_cmd += ["--layout", settings["layout"]]
+                    if settings.get("main_lang"): ass_cmd += ["--main-lang", settings["main_lang"]]
+                    if settings.get("cn_font"): ass_cmd += ["--cn-font", settings["cn_font"]]
+                    if settings.get("en_font"): ass_cmd += ["--en-font", settings["en_font"]]
+                    if settings.get("cn_size"): ass_cmd += ["--cn-size", settings["cn_size"]]
+                    if settings.get("en_size"): ass_cmd += ["--en-size", settings["en_size"]]
+                    if settings.get("cn_color"): ass_cmd += ["--cn-color", settings["cn_color"]]
+                    if settings.get("en_color"): ass_cmd += ["--en-color", settings["en_color"]]
+                    if settings.get("bg_box") is False: ass_cmd += ["--no-bg-box"]
+                    # Pass video dimensions for proper font scaling (esp. vertical videos)
+                    vw, vh = self.get_video_dimensions(os.path.join(workdir, vid))
                     # Upscale low-res sources so subtitles render crisp (avoids blurry
-                    # subs on 360p/480p). Probe source dims; if short edge < 720, scale
-                    # up keeping aspect ratio (short edge -> 720). Pass the target canvas
-                    # to both srt_to_ass (PlayResX/Y + font scaling) and burn_engine (scale filter).
-                    ass_extra, burn_extra = [], []
-                    probe_cmd = [shutil.which("ffprobe") or "ffprobe", "-v", "error",
-                                 "-select_streams", "v:0",
-                                 "-show_entries", "stream=width,height",
-                                 "-of", "csv=p=0", os.path.join(workdir, vid)]
-                    try:
-                        probe = subprocess.check_output(probe_cmd, text=True, stderr=subprocess.DEVNULL).strip()
-                        sw, sh = (int(x) for x in probe.split(",")[:2])
-                        short = min(sw, sh)
-                        if short < 720:
-                            scale = 720.0 / short
-                            tw, th = int(round(sw * scale)), int(round(sh * scale))
-                            tw -= tw % 2; th -= th % 2  # even dims (ffmpeg scale requires)
-                            ass_extra = ["--width", str(tw), "--height", str(th)]
-                            burn_extra = ["--target-width", str(tw), "--target-height", str(th)]
-                            print(f"📐 Source {sw}x{sh} < 720p — upscaling burn canvas to {tw}x{th} for crisp subtitles.")
-                    except Exception as e:
-                        print(f"⚠️ Could not probe video dims for upscale ({e}); burning at native resolution.")
+                    # subs on 360p/480p): if short edge < 720, scale up keeping aspect
+                    # ratio (short edge -> 720) and use the larger canvas for both the
+                    # ASS PlayRes/font-scaling AND the burn scale filter.
+                    burn_extra = []
+                    if min(vw, vh) < 720:
+                        scale = 720.0 / min(vw, vh)
+                        tw, th = int(round(vw * scale)), int(round(vh * scale))
+                        tw -= tw % 2; th -= th % 2  # even dims (ffmpeg scale requires)
+                        vw, vh = tw, th
+                        burn_extra = ["--target-width", str(tw), "--target-height", str(th)]
+                        print(f"📐 Source {vw}x{vh} < 720p — upscaling burn canvas to {tw}x{th} for crisp subtitles.")
+                    ass_cmd += ["--width", str(vw), "--height", str(vh)]
+                    
                     # Step 1: SRT to ASS (runs 0.0% to 2.0%)
-                    if self.run_process(task, "BR", list(SRT2ASS_CMD) + [os.path.join(workdir, bi), os.path.join(workdir, ass)] + ass_extra, start_pct=0.0, end_pct=2.0):
+                    if self.run_process(task, "BR", ass_cmd, start_pct=0.0, end_pct=2.0):
                         # Step 2: Burn Subtitles (runs 2.0% to 100.0%)
                         cmd = list(BURNSUB_CMD) + [os.path.join(workdir, vid), os.path.join(workdir, ass), os.path.join(workdir, out), "--headless", "--quality", getattr(self, "quality", "high")] + burn_extra
                         start_pct = 2.0
@@ -1136,9 +1267,55 @@ class BatchEngine:
                     else: continue
                 elif "GD" in task.status:
                     stage = "GD"
-                    # Synchronize the task's individual workdir instead of the entire project concurrently
-                    sync_dir = workdir
-                    cmd = [PYTHON_EXE, SYNC_SCRIPT, "--local-dir", sync_dir, "--remote-id", self.gdsync_id, "--wrap-folder", "--headless"]
+                    need_gd = self.do_gdsync and not os.path.exists(os.path.join(workdir, ".synced"))
+                    need_bi = self.do_bili and not os.path.exists(os.path.join(workdir, ".bili_uploaded"))
+
+                    if need_gd and need_bi:
+                        # === PARALLEL UPLOAD: Drive sync + Bilibili upload simultaneously ===
+                        # Both only read the finished hardsub video; no write conflict.
+                        bili_cmd = self._build_bili_cmd(workdir)
+                        if not bili_cmd:
+                            try:
+                                with open(os.path.join(workdir, ".bili_uploaded"), "w") as f: f.write("1")
+                            except: pass
+                            need_bi = False
+                        else:
+                            sync_cmd = [str(x) for x in [PYTHON_EXE, SYNC_SCRIPT, "--local-dir", workdir, "--remote-id", self.gdsync_id, "--wrap-folder", "--headless"] if x is not None]
+                            bili_result = [False]
+                            bt = threading.Thread(target=self._run_bili_upload, args=(task, bili_cmd, bili_result), daemon=True)
+                            bt.start()
+                            gd_ok = self.run_process(task, "GD", sync_cmd, start_pct=0.0, end_pct=100.0)
+                            bt.join()
+                            if gd_ok:
+                                try:
+                                    with open(os.path.join(workdir, ".synced"), "w") as f: f.write("1")
+                                except: pass
+                            if bili_result[0]:
+                                try:
+                                    with open(os.path.join(workdir, ".bili_uploaded"), "w") as f: f.write("1")
+                                except: pass
+                            if gd_ok and bili_result[0]:
+                                self.disk_truth(task)
+                            else:
+                                if task.retries < 3:
+                                    task.retries += 1
+                                    task.status = "排队中 (GD)"
+                                    time.sleep(5)
+                                    continue
+                                break
+                        cmd = []  # already handled above, skip shared block
+                    elif need_bi and not need_gd:
+                        # Only Bilibili upload (Drive already synced or disabled)
+                        stage = "BI"
+                        cmd = self._build_bili_cmd(workdir)
+                        if not cmd:
+                            try:
+                                with open(os.path.join(workdir, ".bili_uploaded"), "w") as f: f.write("1")
+                            except: pass
+                            cmd = []
+                    else:
+                        # Only GD sync (existing behavior) or nothing to do
+                        cmd = [PYTHON_EXE, SYNC_SCRIPT, "--local-dir", workdir, "--remote-id", self.gdsync_id, "--wrap-folder", "--headless"] if need_gd else []
 
                 if cmd:
                     cmd = [str(x) for x in cmd if x is not None]
@@ -1151,6 +1328,8 @@ class BatchEngine:
                                 pass
                         if stage == "GD":
                             with open(os.path.join(workdir, ".synced"), "w") as f: f.write("1")
+                        if stage == "BI":
+                            with open(os.path.join(workdir, ".bili_uploaded"), "w") as f: f.write("1")
                         self.disk_truth(task)
                     else:
                         # 失败重试逻辑
@@ -1169,6 +1348,54 @@ class BatchEngine:
         finally:
             with self.lock:
                 self.active_workers.discard(task.uid)
+
+    def _build_bili_cmd(self, workdir):
+        """Build Bilibili upload command via the canonical autosub.build_bili_cmd.
+        All metadata (tid, tags, desc, season) is auto-generated per-video by
+        bili_upload.py's built-in LLM logic."""
+        cmd = build_bili_cmd(workdir)
+        if cmd is None:
+            logger.warning(f"Bilibili cmd build failed for {workdir} (script/venv/hardsub missing)")
+        return cmd
+
+    def _run_bili_upload(self, task, cmd, result_box):
+        """Run Bilibili upload in a background thread (parallel with GD sync),
+        delegating the subprocess to the canonical autosub.run_bili_cmd.
+        Only updates task.pcts['BI']; the main worker thread owns task.status."""
+        sem = self.res.get_sem("BI")
+        has_sem = False
+        try:
+            if self.abort:
+                return
+            sem.acquire()
+            has_sem = True
+            with self.lock:
+                task.pcts["BI"] = 0.0
+            logger.info(f"Task {task.uid} | BI | Start (parallel): {' '.join(cmd)}")
+
+            def on_progress(pct):
+                if pct > task.pcts.get("BI", 0.0):
+                    with self.lock:
+                        task.pcts["BI"] = round(pct, 1)
+
+            def on_log(line):
+                logger.info(f"Task {task.uid} | BI | {line}")
+
+            ok = run_bili_cmd(cmd, on_progress=on_progress, on_log=on_log, abort_flag=lambda: self.abort)
+            if ok:
+                with self.lock:
+                    task.pcts["BI"] = 100.0
+                result_box[0] = True
+                logger.info(f"Task {task.uid} | BI | Success")
+            else:
+                task.error = "BI upload failed"
+                logger.error(f"Task {task.uid} | BI | Failed")
+        except Exception as e:
+            task.error = str(e)
+            logger.error(f"Task {task.uid} | BI | Exception: {e}")
+        finally:
+            if has_sem:
+                sem.release()
 
     def start(self):
         self.load_state()
@@ -1212,42 +1439,58 @@ class Dashboard:
         # Table 每一行约占用 2-3 行高度 (换行 + 线条)
         self.page_size = max(5, (term_height - 10) // 3)
 
-        # Premium MINIMAL_DOUBLE_HEAD borders: secures 100% pixel-perfect column boundary alignment
-        # now that bold font weight metric shifts are eliminated at the Tkinter level.
-        table = Table(box=box.MINIMAL_DOUBLE_HEAD, expand=True, border_style="grey37", show_lines=True)
+        # Title bar: separate line above table, padded to full terminal width.
+        # Avoids Rich's title-in-border rendering which misaligns with CJK/emoji.
+        title_content = f"  {self.engine.playlist_title}  "
+        title_w = cjk_display_width(title_content)
+        if title_w > term_width:
+            title_content = cjk_truncate(title_content, term_width)
+            title_w = cjk_display_width(title_content)
+        t_pad_l = max(0, (term_width - title_w) // 2)
+        t_pad_r = max(0, term_width - title_w - t_pad_l)
+        title_bar = Text(' ' * t_pad_l + title_content + ' ' * t_pad_r, style='bold white on blue')
+
+        table = Table(
+            box=box.ROUNDED, expand=True, border_style="bright_blue", show_lines=True,
+        )
 
         # Dynamic Responsive Layout Modes
         if term_width >= 135:
             # 1. Wide Mode: Show all columns with massive Title column (ratio=1)
             table.add_column("ID", width=3, justify="center", vertical="middle")
-            table.add_column("视频标题 (Title)", ratio=1, min_width=40, justify="left", vertical="middle", no_wrap=False)
-            table.add_column("时长", width=6, justify="center", vertical="middle")
-            table.add_column("状态", width=8, justify="center", vertical="middle")
-            
-            stages = [("下载", "DL"), ("转录", "TR"), ("翻译", "TL"), ("合成", "MR"), ("压制", "BR"), ("上传", "GD")]
-            for zh, en in stages:
-                table.add_column(f"{zh}({en})", width=10, justify="center", vertical="middle")
-            active_stages = ["DL", "TR", "TL", "MR", "BR", "GD"]
-            
-        elif term_width >= 105:
-            # 2. Medium Mode: Show all columns but optimize progress stages to be extremely compact (width=6, no CJK) to save 24 columns of space
-            table.add_column("ID", width=3, justify="center", vertical="middle")
-            table.add_column("视频标题 (Title)", ratio=1, min_width=30, justify="left", vertical="middle", no_wrap=False)
-            table.add_column("时长", width=6, justify="center", vertical="middle")
-            table.add_column("状态", width=8, justify="center", vertical="middle")
-            
+            table.add_column("Video Title", ratio=1, min_width=40, justify="left", vertical="middle", no_wrap=True, overflow="crop")
+            table.add_column("Duration", width=8, justify="center", vertical="middle")
+            table.add_column("Status", width=8, justify="center", vertical="middle")
+
             stages = ["DL", "TR", "TL", "MR", "BR", "GD"]
+            if self.engine.do_bili: stages.append("BI")
+            for s in stages:
+                table.add_column(s, width=10, justify="center", vertical="middle")
+            active_stages = list(stages)
+            _title_w = max(20, term_width - 107 - (10 if self.engine.do_bili else 0))
+
+        elif term_width >= 105:
+            # 2. Medium Mode: Show all columns but optimize progress stages to be extremely compact (width=6)
+            table.add_column("ID", width=3, justify="center", vertical="middle")
+            table.add_column("Video Title", ratio=1, min_width=30, justify="left", vertical="middle", no_wrap=True, overflow="crop")
+            table.add_column("Duration", width=8, justify="center", vertical="middle")
+            table.add_column("Status", width=8, justify="center", vertical="middle")
+
+            stages = ["DL", "TR", "TL", "MR", "BR", "GD"]
+            if self.engine.do_bili: stages.append("BI")
             for s in stages:
                 table.add_column(s, width=6, justify="center", vertical="middle")
-            active_stages = ["DL", "TR", "TL", "MR", "BR", "GD"]
+            active_stages = list(stages)
+            _title_w = max(20, term_width - 83 - (6 if self.engine.do_bili else 0))
             
         else:
             # 3. Narrow Mode: Completely hide stage progress columns to prioritize Title column
             table.add_column("ID", width=3, justify="center", vertical="middle")
-            table.add_column("视频标题 (Title)", ratio=1, min_width=25, justify="left", vertical="middle", no_wrap=False)
-            table.add_column("时长", width=6, justify="center", vertical="middle")
-            table.add_column("状态", width=8, justify="center", vertical="middle")
+            table.add_column("Video Title", ratio=1, min_width=25, justify="left", vertical="middle", no_wrap=True, overflow="crop")
+            table.add_column("Duration", width=8, justify="center", vertical="middle")
+            table.add_column("Status", width=8, justify="center", vertical="middle")
             active_stages = []
+            _title_w = max(20, term_width - 32)
 
         with self.engine.lock:
             all_tasks = sorted(self.engine.task_map.values(), key=lambda x: x.uid)
@@ -1263,6 +1506,7 @@ class Dashboard:
                 is_failed = "失败" in t.status or "报错" in t.status
                 is_paused = "暂停" in t.status
                 is_running = "运行" in t.status
+                is_queued = "排队" in t.status or "等待" in t.status or t.status.startswith("排队中") or t.status.startswith("等待中")
 
                 row_color = "green" if is_done else \
                             "red" if is_failed else \
@@ -1276,16 +1520,28 @@ class Dashboard:
                 if "(" in t.status:
                     active_stage = t.status.split("(")[1].split(")")[0]
 
-                # 状态格式化
+                # 状态格式化为英文 ASCII，规避 CJK 带来的排版错乱
+                # 所有状态强制 2 行，保证 show_lines 行高一致，消除参差不齐
                 disp_status = t.status
-                if "(" in disp_status:
-                    parts = disp_status.split("(")
-                    disp_status = f"{parts[0].strip()}\n({parts[1]}"
+                if is_done:
+                    disp_status = "DONE\n "
+                elif is_failed:
+                    disp_status = f"FAIL\n({active_stage})" if active_stage else "FAIL\n "
+                elif is_paused:
+                    disp_status = f"PAUSE\n({active_stage})" if active_stage else "PAUSE\n "
+                elif is_running:
+                    disp_status = f"RUN\n({active_stage})" if active_stage else "RUN\n "
+                elif is_queued:
+                    disp_status = f"WAIT\n({active_stage})" if active_stage else "WAIT\n "
+                elif "异常" in t.status:
+                    disp_status = f"ERR\n({active_stage})" if active_stage else "ERR\n "
+                elif "重置" in t.status:
+                    disp_status = f"RESET\n({active_stage})" if active_stage else "RESET\n "
 
                 row: list = [
                     Text(str(t.uid), style=row_style),
-                    Text(t.title, style=row_style, no_wrap=False),
-                    Text(t.duration if t.duration else "未知", style=row_style),
+                    Text(cjk_truncate(t.title, _title_w), style=row_style, no_wrap=True, overflow="crop"),
+                    Text(t.duration if t.duration else "Unknown", style=row_style),
                     Text(disp_status, style=row_style, justify="center")
                 ]
                 for s in active_stages:
@@ -1295,38 +1551,28 @@ class Dashboard:
             if not visible_tasks:
                 empty_row = [""] * len(table.columns)
                 if len(empty_row) > 1:
-                    empty_row[1] = Text("⚠️ 没有选中的任务或列表为空", style="bold red")
+                    empty_row[1] = Text("⚠️ Empty task list", style="bold red")
                 table.add_row(*empty_row)
 
-        # 页码指示器
-        page_info = f"任务总数: {total_tasks} | 正在显示: {self.scroll_offset+1}-{min(self.scroll_offset+self.page_size, total_tasks)} | ↑↓ 翻页"
+        # Caption bar: separate lines below table, padded to full terminal width.
+        # ASCII-only (Up/Dn instead of arrows) to avoid ambiguous-width chars.
+        page_info = f"Total Tasks: {total_tasks} | Showing: {self.scroll_offset+1}-{min(self.scroll_offset+self.page_size, total_tasks)} | Up/Dn Scroll"
+        cmd_text = f"[bold cyan]Cmd: [/][white]{self.cmd_buf}[/]" if self.cmd_buf else "[dim]Waiting for command...[/]"
+        help_msg = f"{cmd_text} | [bold yellow]P+A[/]:Pause/Resume All | [bold yellow]P+ID[/]:Pause/Resume One | [bold yellow]R+ID[/]:Reset | [bold red]Q[/]:Exit"
 
-        # 底部美化
-        cmd_text = f"[bold cyan]指令: [/][white]{self.cmd_buf}[/]" if self.cmd_buf else "[dim]等待指令...[/]"
-        help_msg = f"{cmd_text} | [bold yellow]P+ID[/]:暂停 | [bold yellow]P+A[/]:全停 | [bold yellow]R+ID[/]:重置 | [bold red]Q[/]:退出"
+        cap1 = Text.from_markup(help_msg)
+        cap2 = Text.from_markup(f"[dim]{page_info}[/]")
+        def _center_pad_txt(txt: Text, width: int) -> Text:
+            w = cell_len(txt.plain)
+            pl = max(0, (width - w) // 2)
+            pr = max(0, width - w - pl)
+            r = Text()
+            if pl: r.append(' ' * pl)
+            r.append(txt)
+            if pr: r.append(' ' * pr)
+            return r
 
-        footer = Panel(
-            Align.center(f"{help_msg}\n[dim]{page_info}[/]"),
-            box=box.ROUNDED,
-            border_style="bright_blue",
-            padding=(0, 2)
-        )
-
-        header = Panel(
-            Align.center(f"[bold white]🗂️  {self.engine.playlist_title}[/]"),
-            box=box.SIMPLE,
-            style="on blue"
-        )
-
-
-        layout = Layout()
-        layout.split(
-            Layout(header, name="header", size=3),
-            Layout(name="body"),
-            Layout(footer, name="footer", size=4)
-        )
-        layout["body"].update(table)
-        return layout
+        return Group(title_bar, table, _center_pad_txt(cap1, term_width), _center_pad_txt(cap2, term_width))
 
 
 def main():
@@ -1334,6 +1580,7 @@ def main():
     parser.add_argument("--output", default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--sub-dir-name", help="项目子目录名称")
     parser.add_argument("--gdsync", action="store_true")
+    parser.add_argument("--bili-upload", action="store_true", help="Upload each hardsub video to Bilibili (auto-generates tid/tags/desc/season per video)")
     parser.add_argument("--urls", nargs="*")
     parser.add_argument("--file", help="包含 URL 列表的文本文件")
     parser.add_argument("--cookies", help="Path to cookies.txt (optional)")
@@ -1342,11 +1589,14 @@ def main():
     parser.add_argument("--separate", action="store_true", help="使用播放列表名称作为子目录")
     parser.add_argument("--state-file", help="Path to state file")
     parser.add_argument("--quality", choices=["standard", "high", "lossless"], default="high", help="压制字幕画质 (standard, high, lossless)")
+    parser.add_argument("--no-sequence", action="store_true", help="不要在视频文件夹名称前加序列号")
     args = parser.parse_args()
 
     engine = BatchEngine(output_dir=args.output, sub_dir_name=args.sub_dir_name, state_file=args.state_file)
     engine.quality = args.quality
     engine.do_gdsync = args.gdsync
+    engine.do_bili = args.bili_upload
+    engine.no_sequence = args.no_sequence
     if args.cookies:
         engine.cookie_path = args.cookies
 
@@ -1529,25 +1779,41 @@ def main():
                 elif ch in (b'\r', b'\n'):
                     if id_buf and cmd_mode:
                         if id_buf == "A" and cmd_mode == 'P':
-                            engine.res.global_pause = not engine.res.global_pause
+                            new_global_pause = not engine.res.global_pause
+                            engine.res.global_pause = new_global_pause
                             # 立即同步所有活跃进程的状态并更新 UI 状态
                             with engine.lock:
                                 for t in engine.task_map.values():
                                     stage = "TR"
                                     if "(" in t.status: stage = t.status.split("(")[1].split(")")[0]
 
-                                    if engine.res.global_pause or t.is_paused:
+                                    if new_global_pause:
+                                        # P+A 暂停所有：标记全局暂停，杀死所有活跃子进程
                                         t.status = f"暂停中 ({stage})"
+                                        if t.pid:
+                                            try:
+                                                p_proc = psutil.Process(t.pid)
+                                                for child in p_proc.children(recursive=True): child.terminate()
+                                                p_proc.terminate()
+                                            except: pass
                                     else:
+                                        # P+A 恢复所有：清除全局暂停 AND 清除所有任务的 is_paused 标志
+                                        # 关键修复：恢复时必须一并清除每个任务的 is_paused，否则
+                                        # 之前被 P+数字 单独暂停的任务仍卡在暂停循环中
+                                        t.is_paused = False
                                         t.status = f"排队中 ({stage})"
+                                        t.error = None
 
-                                    if t.pid:
-                                        try:
-                                            # 全局逻辑：仅发送终止信号，由 run_process 捕获并释放信号量
-                                            p_proc = psutil.Process(t.pid)
-                                            for child in p_proc.children(recursive=True): child.terminate()
-                                            p_proc.terminate()
-                                        except: pass
+                            engine.save_state()
+
+                            # 恢复时：为所有未完成且没有活跃 worker 的任务重启线程
+                            # 关键修复：暂停期间 worker 可能因进程被杀后重试耗尽等原因退出，
+                            # 仅靠 worker 内部的 while 循环无法自动恢复已退出的线程
+                            if not new_global_pause:
+                                with engine.lock:
+                                    for t in engine.task_map.values():
+                                        if t.status != "完成" and not t.status.startswith("失败") and t.uid not in engine.active_workers:
+                                            threading.Thread(target=engine.worker, args=(t,), daemon=True).start()
                         else:
                             try:
                                 uid = int(id_buf)
@@ -1629,7 +1895,7 @@ def main():
 
     threading.Thread(target=input_loop, daemon=True).start()
 
-    with Live(dash.render(), console=dash.console, screen=True, refresh_per_second=4) as live:
+    with Live(dash.render(), console=dash.console, screen=True, refresh_per_second=2) as live:
         while not engine.abort:
             live.update(dash.render())
             engine.save_state()

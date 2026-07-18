@@ -2,3 +2,4 @@
 .agents/skills/google-drive-sync/token.json
 .agents/skills/bilibili-uploader/assets/cookies.json
 .agents/skills/bilibili-uploader/scripts/__pycache__/
+Library/Tools/autosub/_backup_pre_algo_fix_*

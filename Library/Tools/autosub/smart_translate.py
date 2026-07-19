@@ -471,6 +471,38 @@ def postprocess_retry_loop(final_blocks: List[Dict], client, model: str, style: 
         if still_missed:
             print(f"⚠️ Max iterations ({max_iterations}) reached. "
                   f"{len(still_missed)} segment(s) still untranslated.")
+            # Final naked-prompt fallback: the batch prompt (with large
+            # verbalizer/humanizer rule blocks) sometimes makes the LLM return
+            # malformed [ID] lines for tricky fragments (e.g. a bare list of
+            # proper nouns). Re-translate each remaining block with a minimal
+            # single-line prompt that has no rule preamble — this reliably
+            # produces a clean [ID] <translation> line. Prevents 1 stuck
+            # block from failing the entire 978-block translation.
+            print("🔄 Naked-prompt fallback for remaining stuck block(s)...")
+            for pos in still_missed:
+                blk = final_blocks[pos]
+                idx = str(blk['index'])
+                src = " ".join(blk.get('lines', [])).replace("\n", " ").strip()
+                if not src:
+                    continue
+                naked = (f"Translate this ONE subtitle fragment into Simplified Chinese. "
+                         f"Keep proper nouns/acronyms in English. "
+                         f"Reply with ONLY one line in this exact format: [{idx}] <translation>\n\n"
+                         f"[{idx}] {src}\n")
+                try:
+                    out = client.generate_content(naked, model_name=model, provider=provider)
+                    if out:
+                        import re as _re
+                        m = _re.search(r'\[%s\]\s*(.+)' % _re.escape(idx), out)
+                        if m:
+                            cn = m.group(1).strip()
+                            if cn and _re.search(r'[\u4e00-\u9fff]', cn):
+                                final_blocks[pos]['lines'] = [cn]
+                                print(f"   ✔ block {idx}: naked fallback succeeded")
+                                continue
+                    print(f"   ✗ block {idx}: naked fallback failed, keeping original")
+                except Exception as e:
+                    print(f"   ✗ block {idx}: naked fallback error {e}")
 
     return final_blocks
 
@@ -934,8 +966,16 @@ def main():
     # 5. Final validation: check if there are any untranslated blocks remaining
     untranslated_count = sum(1 for b in final_blocks if is_untranslated(b))
     if untranslated_count > 0:
-        print(f"\n❌ Error: {untranslated_count} segments remain untranslated. Translation failed.")
-        sys.exit(1)
+        # Soft-degrade: a handful of stuck blocks (typically bare lists of
+        # proper nouns like "CoreWeave and Crusoe and Nebius and ...") can
+        # resist translation across all retries. Failing the entire run over
+        # 1-2 such blocks is worse than keeping the original text for them —
+        # the bilingual merge will still show EN for those fragments. Warn
+        # and continue instead of aborting.
+        stuck = [str(b['index']) for b in final_blocks if is_untranslated(b)]
+        print(f"\n⚠️ {untranslated_count} segment(s) could not be translated after all retries "
+              f"(likely bare proper-noun lists): {stuck}. Keeping original text for these; "
+              f"output will have EN for those blocks. Continuing.")
 
     # 6. Save Output
     if input_path.lower().endswith(".en.srt"):

@@ -248,11 +248,16 @@ async def upload_video(video_path, title, tid=None, season_id=None, tags=None,
             extract_best_cover(ffmpeg.strip('"'), video_path, cover_path)
     meta = video_uploader.VideoMeta(
         tid=tid, title=title, desc=description, tags=tags,
-        cover=cover_path if os.path.exists(cover_path) else None,
+        cover=cover_path if os.path.exists(cover_path) else "",
         no_reprint=True, dynamic="" if is_private else f"发布新视频：{title}"
     )
     meta_dict = meta.__dict__()
     meta_dict["copyright"] = 1
+    # Drop cover key entirely when no cover file exists: VideoUploader passes
+    # cover through to bilibili_api Picture.from_file(), which raises TypeError
+    # on None. Omitting the key lets the uploader skip the cover step.
+    if not (cover_path and os.path.exists(cover_path)):
+        meta_dict.pop("cover", None)
     if is_private:
         meta_dict["is_only_self"] = 1
         meta_dict["up_close_reply"] = True
@@ -266,11 +271,15 @@ async def upload_video(video_path, title, tid=None, season_id=None, tags=None,
             print(f">>> 未匹配到合适的合集，跳过绑定")
     else:
         meta_dict["season_id"] = season_id
-    uploader = video_uploader.VideoUploader(
+    uploader_kwargs = dict(
         pages=[video_uploader.VideoUploaderPage(path=video_path, title=title)],
         meta=meta_dict, credential=credential,
-        cover=cover_path if os.path.exists(cover_path) else None
     )
+    # Only pass cover when the file actually exists — VideoUploader forwards it
+    # to bilibili_api Picture.from_file(), which raises TypeError on None.
+    if cover_path and os.path.exists(cover_path):
+        uploader_kwargs["cover"] = cover_path
+    uploader = video_uploader.VideoUploader(**uploader_kwargs)
     last_progress = [-10.0]
     @uploader.on(VideoUploaderEvents.AFTER_CHUNK.value)
     async def on_after_chunk(data):

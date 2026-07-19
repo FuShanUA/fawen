@@ -208,7 +208,15 @@ async def upload_video(video_path, title, tid=None, season_id=None, tags=None,
         print("Error: 找不到 cookies.json"); return False
     with open(DEFAULT_COOKIES, "r", encoding="utf-8") as f:
         c = json.load(f)
-        credential = Credential(sessdata=c["SESSDATA"], bili_jct=c["bili_jct"], buvid3=c["buvid3"])
+        # buvid4 is required by bilibili_api's get_buvid_cookies(): if it's
+        # missing the library calls the B站 SPI endpoint to fetch one, which
+        # currently returns 412 / times out (anti-bot), stalling every upload
+        # at the buvid handshake. Passing buvid4 from the stored cookies skips
+        # that network fetch entirely.
+        cred_kwargs = dict(sessdata=c["SESSDATA"], bili_jct=c["bili_jct"], buvid3=c["buvid3"])
+        if c.get("buvid4"):
+            cred_kwargs["buvid4"] = c["buvid4"]
+        credential = Credential(**cred_kwargs)
     _API = get_api("video_uploader")
     pre_info = await Api(**_API["pre"], credential=credential).result
     match_context = title

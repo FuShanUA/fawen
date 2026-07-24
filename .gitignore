@@ -3,3 +3,19 @@
 .agents/skills/bilibili-uploader/assets/cookies.json
 .agents/skills/bilibili-uploader/scripts/__pycache__/
 Library/Tools/autosub/_backup_pre_algo_fix_*
+# Guard: standalone sub-projects. A `git reset --hard origin/main` on 2026-07-15
+# wiped these because origin/main did not track them. Ignoring keeps reset/clean off.
+Library/Tools/postfdry/
+Library/Tools/PostOS-Pro/
+Projects/company-namer/
+Library/Tools/DCMM_Audit_System/
+# 让大仓库彻底不管这些独立项目目录(2026-07-15 reset 曾误删其内容)
+Library/Tools/
+Projects/
+.agents/
+common/
+scripts/
+skills/
+lib/
+.claude/
+.tools/

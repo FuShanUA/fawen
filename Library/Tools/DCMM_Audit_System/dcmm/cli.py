@@ -31,6 +31,12 @@ def get_engine(engine_id: str):
 
 
 def main():
+    # TUI mode: python -m dcmm tui  (or: python run.py tui)
+    if len(sys.argv) > 1 and sys.argv[1] == "tui":
+        from .tui import run_tui
+        run_tui()
+        return
+
     ap = argparse.ArgumentParser(
         prog="dcmm",
         description=f"DCMM AI 审计系统 v{__version__} — 双引擎 (Gemini / GLM)",

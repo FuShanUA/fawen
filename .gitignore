@@ -1,21 +1,31 @@
-.agents/skills/google-drive-sync/credentials.json
-.agents/skills/google-drive-sync/token.json
-.agents/skills/bilibili-uploader/assets/cookies.json
-.agents/skills/bilibili-uploader/scripts/__pycache__/
-Library/Tools/autosub/_backup_pre_algo_fix_*
-# Guard: standalone sub-projects. A `git reset --hard origin/main` on 2026-07-15
-# wiped these because origin/main did not track them. Ignoring keeps reset/clean off.
-Library/Tools/postfdry/
-Library/Tools/PostOS-Pro/
-Projects/company-namer/
-Library/Tools/DCMM_Audit_System/
-# 让大仓库彻底不管这些独立项目目录(2026-07-15 reset 曾误删其内容)
+# === PostOS 2.0 仓库 .gitignore ===
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 敏感配置（本地保留，不进仓库）
+.env
+
+# 备份与临时文件
+*.bak
+*.bak_*
+*.log
+.DS_Store
+
+# 独立子项目（各自有独立仓库，PostOS 仓库不跟踪）
+# autosub -> FuShanUA/autosub | DCMM -> FuShanUA/DCMMShenji
 Library/Tools/
 Projects/
 .agents/
-common/
-scripts/
-skills/
-lib/
 .claude/
 .tools/
+wip/
+
+# cc 项目记忆文件（本地保留，不进 PostOS 仓库）
+AGENTS.md
+CLAUDE.md

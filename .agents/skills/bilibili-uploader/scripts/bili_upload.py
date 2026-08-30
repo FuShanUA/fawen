@@ -250,7 +250,7 @@ def extract_best_cover(ffmpeg_exe, video_path, cover_path):
                 try:
                     from PIL import Image
                     img = Image.open(tmp)
-                    pixels = list(img.getdata())
+                    pixels = list(img.getdata())  # TODO: Pillow 14 migration to get_flattened_data
                     if pixels:
                         avg = sum(sum(p[:3]) for p in pixels) / (len(pixels) * 3)
                         candidates.append((avg, tmp))
@@ -504,10 +504,12 @@ async def upload_video(video_path, title, tid=None, season_id=None, tags=None,
             return False
         print("\n✅ 上传完成！")
         return True
-    except Exception as e:
-        err_brief = str(e).split("<")[0].strip()[:200]
-        print(f"\n❌ 失败: {err_brief}")
-        return False
+   except Exception as e:
+       err_brief = str(e).split("<")[0].strip()[:200]
+       print(f"\n❌ 失败: {err_brief}")
+        import traceback
+        traceback.print_exc()
+       return False
 
 import argparse
 if __name__ == "__main__":

@@ -591,6 +591,9 @@ def generate_html(markdown_file, keep_title=False):
     # Strip frontmatter (Anchored to the very start of the string)
     md_no_fm = re.sub(r'\A---\s*.*?\s*---\s*', '', md_content, flags=re.DOTALL)
 
+    # Strip remote author avatar images that may 404 and crash the HTML generator
+    md_no_fm = re.sub(r'!\[.*?(?:avatar|头像).*?\]\(https?://.*?\)', '', md_no_fm, flags=re.IGNORECASE)
+
     # [FIX] Keep asset paths as-is — relative paths work correctly for both
     # local HTML preview and wechat-api upload (baseDir resolution).
     # Do NOT convert to file:// URIs — wechat-api cannot handle them.

@@ -1478,9 +1478,19 @@ class PostOSGUI:
                         expected_title = os.path.splitext(os.path.basename(target))[0]
                 
                 if expected_title and expected_title != "X post" and not expected_title.startswith("Tweet by"):
-                    new_title_clean = re.sub(r'[^a-zA-Z0-9]', '', expected_title).lower()
-                    old_title_clean = re.sub(r'[^a-zA-Z0-9]', '', self.eng_title_var.get()).lower()
-                    if new_title_clean != old_title_clean:
+                    # Normalize: keep alphanumeric + CJK chars for comparison
+                    new_title_clean = re.sub(r'[^\w\u4e00-\u9fff]', '', expected_title).lower()
+                    # Compare against both eng_title and std_title to avoid false mismatch
+                    # (source title may be Chinese while eng_title is English, or vice versa)
+                    eng_title_clean = re.sub(r'[^\w\u4e00-\u9fff]', '', self.eng_title_var.get()).lower()
+                    std_title_clean = re.sub(r'[^\w\u4e00-\u9fff]', '', self.std_title_var.get()).lower()
+                    # Use substring check: sniffed title may have prefixes like "Issue #61 – "
+                    # that the cleaned eng_title doesn't have (or vice versa)
+                    if eng_title_clean and (eng_title_clean in new_title_clean or new_title_clean in eng_title_clean):
+                        is_same_article = True
+                    elif std_title_clean and (std_title_clean in new_title_clean or new_title_clean in std_title_clean):
+                        is_same_article = True
+                    else:
                         is_same_article = False
             except Exception as e:
                 print(f"⚠️ [Fast check] Mismatch check failed: {e}")

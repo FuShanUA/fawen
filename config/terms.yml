@@ -54,6 +54,14 @@
 
 # --- AI Models & Labs (2026-07-05) ---
 "Claude": "Claude"
+"Claude Code": "Claude Code"
+"Claude Force": "Claude Force"
+"Claude Tag": "Claude Tag"
+"Claude Desktop": "Claude Desktop"
+"Claude API": "Claude API"
+"Claude Pro": "Claude Pro"
+"Claude Team": "Claude Team"
+"Claude Enterprise": "Claude Enterprise"
 "Anthropic": "Anthropic"
 "OpenAI": "OpenAI"
 "Codex": "Codex"
@@ -64,3 +72,10 @@
 "Echo": "Echo" # Palantir-inspired role name, do not translate
 "Delta": "Delta" # Palantir-inspired role name, do not translate
 
+
+# --- ASR Corrections & Proper Nouns (2026-08-29) ---
+"Palmer Luckey": "Palmer Luckey"
+"Trae Stephens": "Trae Stephens"
+"Matt Steckman": "Matt Steckman"
+"Anduril": "Anduril"
+"Enderlin": "Anduril"

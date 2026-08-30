@@ -263,7 +263,14 @@ def deterministic_scrub(text):
 
         # 5. 下面是正文内容的清洗（包括标记保护）
         if stripped.startswith("#") or stripped.startswith("!") or stripped.startswith("<!--") or stripped.startswith("- **"):
+            # 5.5 Strip Substack/Medium author avatars even from image lines
+            if re.search(r'!\[.*?(?:avatar|头像).*?\]', stripped, re.IGNORECASE):
+                continue
             processed_lines.append(line)
+            continue
+
+        # 5.6 Strip Read time / 阅读时长 / 阅读时间 lines (not caught by marker protection)
+        if re.match(r'^\s*\*?\*?(?:Read Time|阅读时长|阅读时间|Reading Time|Read time)\s*[:：]?\s*', stripped, re.IGNORECASE):
             continue
 
         # Avoid corrupting technical list markers (e.g. "1. " -> "1。")
@@ -324,6 +331,21 @@ def extract_clean_body(text, keep_cover=False):
     if not keep_cover:
         text = re.sub(r'!\[Cover\].*?(\n|$)', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\[ARTICLE_COVER_HERE\].*?(\n|$)', '', text, flags=re.IGNORECASE)
+
+    # 1.6 Strip Substack/Medium author avatars and read-time metadata
+    # Author avatar images: ![User's avatar](...) or ![Dylan Anderson的头像](...)
+    text = re.sub(r'!\[.*?(?:avatar|头像).*?\]\(.*?\)', '', text, flags=re.IGNORECASE)
+    # Read time / 阅读时长 / 阅读时间 lines
+    text = re.sub(r'(?im)^\s*\*?\*?(?:Read Time|阅读时长|阅读时间|Reading Time|Read time)\b.*$', '', text)
+    # Substack subscriber/like counts and other metadata lines
+    text = re.sub(r'(?im)^\s*\*?\*?(?:Subscribers|Likes|Comments|订阅|点赞|评论)\s*:?\s*.*$', '', text)
+    # Substack cross-article promotion cards: image + heading + "Read full story" link
+    # Matches both English (Issue #xx) and Chinese (第 xx 期) translated forms
+    # Pattern: ![Issue #xx / 第 xx 期 – ...](img) \n #### Issue #xx / 第 xx 期 ... \n [Read full story / 阅读完整文章](url)
+    promo_pattern = r'!\[(?:Issue\s*#|第\s*\d+\s*期).*?\]\(.*?\)\s*\n+#{2,4}\s*(?:Issue\s*#|第\s*\d+\s*期).*?\n+\[(?:Read full story|阅读完整文章|阅读完整报道).*?\]\(.*?\)\s*\n*'
+    text = re.sub(promo_pattern, '', text, flags=re.IGNORECASE | re.DOTALL)
+    # Also strip standalone "Read full story" / "阅读完整文章" links
+    text = re.sub(r'\[(?:Read full story|阅读完整文章|阅读完整报道)\]\(.*?\)', '', text, flags=re.IGNORECASE)
 
     # Remove Lead-in blocks: > **导读** or > **Lead-in**
     text = re.sub(r'>\s*\*\*导读：?\*\*.*?(\n\n|\n---|$)', '', text, flags=re.DOTALL | re.IGNORECASE)

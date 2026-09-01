@@ -67,6 +67,7 @@ def build_rewriting_prompt(source_text, thoughts="", type_selection="trend", sty
 
     # Title logic: Use confirmed target_title if available, else invent one
     title_instruction = f"文章开头直接以 `# {target_title}` 开头（**你必须严格使用此标题，严禁修改或拟定新标题**）。" if target_title else "文章开头直接以 `# 标题` 开头（标题要新拟，具有行业深度）。"
+    title_quality_hint = "标题必须是全新的角度，不是在原标题上加形容词。应提炼核心论点或独特洞察。好标题示例：原文'The Evolution of Modern Data Architecture'→'没有一种数据架构是多余的：架构演进背后的业务驱动力和技术合理性'。坏标题示例：→'深度解析现代数据架构的演进'（只是加了'深度解析'）。" if not target_title else ""
 
     # Ending section prompt
     if summary_mode == "explicit":
@@ -141,13 +142,16 @@ def build_rewriting_prompt(source_text, thoughts="", type_selection="trend", sty
      - **聚焦微观局部，严禁覆盖全文**：逻辑信息图应只是局部的补充。**它必须聚焦在某一个局部的微观拓扑结构、演进过程或关键概念对比上，切实起到辅助读者理解该复杂段落的作用。严禁让它去宏观覆盖整篇文章的大意**（因为整篇文章的宏观视觉表达已由上面的封面图 COVER 承担了），从而避免与封面图（头图）功能无法区分。
      - **插入格式**：若符合上述条件，请在被插图的复杂逻辑段落后独占一行插入：`[AI_GEN_IMG: 类型 | 核心逻辑提炼 | 关键事实数据 | 标注标签]`。类型可选：对比、因果、过程、并列、层级。
 4. **Layout 规范**：
-   - {title_instruction}
-   - 标题下方紧跟一行 `- 作者：{institute_name}`.
-  - 严禁输出 any YAML Frontmatter.
-5. **内容完整性与改写规范 (CRITICAL)**：
-   - **保留核心框架与细节**：原文中的核心框架（如分类体系、评估维度、层级定义等）、关键事实和数据、具体操作步骤，你**必须完整保留并重构**，不得遗漏或过度压缩。解读版的价值在于让读者获得与原文等量的信息密度，而非仅提供一个摘要。
-   - **改写而非照抄**：不要逐句照抄翻译稿原文的措辞，但原文的核心论点、方法论、实操建议必须全部覆盖。你可以重新组织结构、更换表达方式、补充本土化解读，但信息量不能缩水。
-   - **篇幅要求**：解读版篇幅应与原文相当（不低于原文的70%），如果原文有详细的方法论展开、分领域定义、操作步骤等，你必须在解读版中对应展开，而非一笔带过。
+  - {title_instruction}
+  - {title_quality_hint}
+ - 标题下方紧跟一行 `- 作者：{institute_name}`.
+- 严禁输出 any YAML Frontmatter.
+ - **正文结构 (CRITICAL)**：正文必须使用 H2（`##`）小标题划分逻辑段落，每 2-4 段归入一个小标题之下。小标题应当提炼该段的核心判断或结论，而非泛泛的类别词（如"背景介绍"、"总结"）。禁止出现连续超过 4 段没有小标题分隔的"文字墙"。如果某个逻辑层次下有子要点，使用 H3（`###`）进一步组织。
+5. **解读深度与改写规范 (CRITICAL)**：
+  - **提炼而非复述**：你的任务是提炼原文的核心洞见，用自己的叙事结构重新组织，而非逐段复述原文。解读版不是翻译稿的"换皮版"，它必须有独立的叙事逻辑和结构判断。
+   - **自主取舍**：你应当自主判断哪些内容值得展开深挖、哪些可以合并压缩、哪些可以一笔带过。关键事实和数据必须准确引用，但不必覆盖原文的每一个分点、每一个步骤。该详则详，该略则略。
+   - **补充本土视角**：在原文核心事实的基础上，补充国内从业者需要的上下文、对比和本土化解读，这是解读版区别于翻译稿的核心价值。
+   - **篇幅自然**：篇幅由内容本身决定，不设下限。如果原文有三个层次的分析，你判断其中两个对国内读者最有价值，就重点展开那两个，而非机械地三段对等复述。
    - 直接输出解读正文，不要有任何过渡性引用原文的动作。
 
 {narrative_section}
@@ -173,7 +177,7 @@ def build_rewriting_prompt(source_text, thoughts="", type_selection="trend", sty
 """
     return prompt
 
-def run_atomic_rewrite(input_file, thoughts="", type_selection="trend", unslop_domain="数据治理", style="formal", wip_dir=None, model_name="gemini-3-flash-preview", target_title="", summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author=""):
+def run_atomic_rewrite(input_file, thoughts="", type_selection="trend", unslop_domain="数据治理", style="formal", wip_dir=None, model_name="dashscope::glm-5.2", target_title="", summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author=""):
     """Reads input and generates rewritten output."""
     with open(input_file, 'r', encoding='utf-8') as f:
         source_text = f.read()
@@ -203,7 +207,7 @@ def run_atomic_rewrite(input_file, thoughts="", type_selection="trend", unslop_d
     print(f"  [Skill] Atomic rewriting complete: {os.path.basename(output_file)}")
     return output_file
 
-def run(input_file, project_root=None, style="trend", unslop_domain="数据治理", thoughts="", target_title="", model_name="gemini-3-flash-preview", summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author=""):
+def run(input_file, project_root=None, style="trend", unslop_domain="数据治理", thoughts="", target_title="", model_name="dashscope::glm-5.2", summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author=""):
     """Alias for interpret_workflow integration."""
     wip_dir = os.path.join(project_root, "wip") if project_root else None
     return run_atomic_rewrite(input_file, thoughts=thoughts, type_selection=style, unslop_domain=unslop_domain, wip_dir=wip_dir, model_name=model_name, target_title=target_title, summary_mode=summary_mode, summary_prompt=summary_prompt, generate_summary=generate_summary, narrative_theme=narrative_theme, author=author)
@@ -215,7 +219,7 @@ if __name__ == "__main__":
     parser.add_argument("--type", default="trend", choices=["paper", "trend", "policy", "product", "standard"], help="Article type selection")
     parser.add_argument("--unslop", default="数据治理", help="Unslop domain domain")
     parser.add_argument("--target-title", default="", help="Fixed title to use")
-    parser.add_argument("--model", default="gemini-3-flash-preview", help="Model name")
+    parser.add_argument("--model", default="dashscope::glm-5.2", help="Model name")
     parser.add_argument("--skip-summary", action="store_true", help="Skip generating summary ending")
     parser.add_argument("--summary-mode", default="explicit", choices=["explicit", "implicit", "none", "preset", "auto"], help="Summary mode")
     parser.add_argument("--summary-prompt", default="", help="Preset summary prompt")

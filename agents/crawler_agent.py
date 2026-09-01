@@ -32,6 +32,116 @@ for d in [common_dir, AGENTS_DIR]:
     if d not in sys.path:
         sys.path.insert(0, d)
 
+# --- Cloudflare bypass via r.jina.ai ---
+_sniff_cache = {}
+_jina_cache = {}
+
+def _is_cloudflare_protected(url):
+    """Check if a URL is likely behind Cloudflare protection.
+    Covers medium.com and custom domains hosted on Medium (e.g. blog.example.com).
+    """
+    return "medium.com" in url or _sniff_cache.get(url + ":cf", False)
+
+def _is_cloudflare_challenge(html_content):
+    if not html_content:
+        return False
+    markers = [
+        "Performing security verification",
+        "security service to protect against malicious bots",
+        "Just a moment",
+        "cf-challenge",
+        "Sorry, you have been blocked",
+        "Cloudflare",
+    ]
+    lower = html_content.lower() if isinstance(html_content, str) else ""
+    return any(m.lower() in lower for m in markers) and "<article" not in lower
+
+def _fetch_via_jina(url):
+    if url in _jina_cache:
+        return _jina_cache[url]
+    jina_url = f"https://r.jina.ai/{url}"
+    try:
+        print(f"Crawler Agent: Fetching via r.jina.ai: {jina_url}")
+        r = requests.get(jina_url, timeout=30, headers={"Accept": "text/plain"})
+        if r.status_code != 200 or not r.text.strip():
+            print(f"Crawler Agent: r.jina.ai returned status {r.status_code}")
+            return None
+        raw = r.text
+        metadata = {"title": "", "author": "Unknown", "publish_date": "", "source": "", "url": url}
+        lines = raw.split("\n")
+        body_start = 0
+        for i, line in enumerate(lines):
+            if line.startswith("Title:"):
+                metadata["title"] = line[len("Title:"):].strip()
+            elif line.startswith("Published Time:"):
+                raw_date = line[len("Published Time:"):].strip()
+                metadata["publish_date"] = parse_date_string(raw_date) if raw_date else ""
+            elif line.startswith("Markdown Content:"):
+                body_start = i + 1
+                break
+        body = "\n".join(lines[body_start:]).strip()
+        # Extract author from Medium avatar alt text
+        author_match = re.search(r'\[!\[Image\s*\d*:\s*([A-Z][a-zA-Z\s]+?)\]\(.*?\)\]\(https://medium\.com/@', body)
+        if author_match:
+            metadata["author"] = author_match.group(1).strip()
+        else:
+            handle_match = re.search(r'https://medium\.com/@([^?/\s]+)', body[:500])
+            if handle_match:
+                metadata["author"] = handle_match.group(1)
+        if metadata["author"] and metadata["author"] != "Unknown":
+            metadata["source"] = normalize_source(metadata["author"], "Medium")
+        else:
+            metadata["source"] = "Medium"
+        # Clean Medium page noise
+        body = re.sub(r'Press enter or click to view image in full size', '', body)
+        body = re.sub(r'^Sign up$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^Get app$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^Follow publication$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[Write\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[Search\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[\]\(https://medium\.com.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\d+\.\s+\[.*?\]\(https://medium\.com.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'\[Open in app\]\(.*?\)', '', body)
+        body = re.sub(r'\[Sign in\]\(.*?\)', '', body)
+        body = re.sub(r'\[Text to speech\]\(.*?\)', '', body)
+        body = re.sub(r'^Listen$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^Share$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'## Get .*?[\'\u2019]s stories in your inbox.*', '', body)
+        body = re.sub(r'Join Medium for free.*', '', body)
+        body = re.sub(r'Remember me for faster sign in.*', '', body)
+        body = re.sub(r'^- \[x\]\s*$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^- \[ \]\s*$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\d+\s*min read$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[!\[Image.*?\]\(.*?\)\]\(https://medium\.com/@.*?\)\s*$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'!\[Image.*?Unknown user.*?\]\(.*?\)', '', body)
+        body = re.sub(r'^##\s+\[.*?\]\(https://medium\.com/.*?source=post_page.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[!\[Image.*?Towards Data.*?\]\(.*?\)\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^Explore top articles.*$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[(Data|Big Data|Data Engineering|Data Engineer|Data Engineering 101|Machine Learning|AI|Programming|Software Development|Technology|Science|Self Improvement|Writing|Productivity)\]\(https://medium\.com/tag.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[.*?followers\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[\u00b7\[.*?following\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[.*?following\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^Follow$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^Senior Data Engineer$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^Written by.*$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[Roshan Patil\]\(https://medium\.com/@.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[[A-Z][a-zA-Z\s]+\]\(https://medium\.com/@.*?source=post_page.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[Listen\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\d{1,4}$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\u00b7\[Last published.*?\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\[Last published.*?\]\(.*?\)$', '', body, flags=re.MULTILINE)
+        for pat in [r'^\[Help\]\(.*?\)$', r'^\[Status\]\(.*?\)$', r'^\[About\]\(.*?\)$', r'^\[Careers\]\(.*?\)$', r'^\[Press\]\(.*?\)$', r'^\[Blog\]\(.*?\)$', r'^\[Store\]\(.*?\)$', r'^\[Privacy\]\(.*?\)$', r'^\[Rules\]\(.*?\)$', r'^\[Terms\]\(.*?\)$']:
+            body = re.sub(pat, '', body, flags=re.MULTILINE)
+        body = re.sub(r'^\u00b7$', '', body, flags=re.MULTILINE)
+        body = re.sub(r'\n{3,}', '\n\n', body).strip()
+        body = body.lstrip('\n').strip()
+        print(f"Crawler Agent: r.jina.ai success. Title: {metadata['title'][:50]}, Body: {len(body)} chars")
+        _jina_cache[url] = (metadata, body)
+        return metadata, body
+    except Exception as e:
+        print(f"Crawler Agent: r.jina.ai failed: {e}")
+        return None
+
 def process_table(table_element):
     """Convert HTML table to proper Markdown table."""
     rows = table_element.find_all('tr')
@@ -342,6 +452,8 @@ def normalize_source(author, platform):
 
 def sniff_metadata(url):
     """Lightweight metadata extraction using Standard Fallback: LD-JSON > OG > Title > H1. Supports local files."""
+    if url in _sniff_cache:
+        return _sniff_cache[url].copy()
     html = ""
     is_local = os.path.exists(url)
     if is_local:
@@ -371,6 +483,32 @@ def sniff_metadata(url):
                 html = response.read(1024 * 1024) # Read first 1MB
         except Exception as e:
             print(f"  [Sniffing Failed] {e}")
+            # Detect Cloudflare challenge on custom domains (e.g. Medium custom domains)
+            cf_body = None
+            if hasattr(e, 'read'):
+                try:
+                    cf_body = e.read(65536)
+                    if isinstance(cf_body, bytes):
+                        cf_body = cf_body.decode('utf-8', errors='ignore')
+                except Exception:
+                    cf_body = None
+            elif hasattr(e, 'fp') and e.fp:
+                try:
+                    cf_body = e.fp.read(65536)
+                    if isinstance(cf_body, bytes):
+                        cf_body = cf_body.decode('utf-8', errors='ignore')
+                except Exception:
+                    cf_body = None
+            if cf_body and _is_cloudflare_challenge(cf_body):
+                print(f"  [Sniffing] Cloudflare challenge detected on custom domain, marking as CF-protected")
+                _sniff_cache[url + ":cf"] = True
+            if _is_cloudflare_protected(url):
+                print(f"  [Sniffing] Trying r.jina.ai fallback for Cloudflare-protected URL...")
+                jina_result = _fetch_via_jina(url)
+                if jina_result:
+                    jina_meta = jina_result[0]
+                    _sniff_cache[url] = jina_meta
+                    return jina_meta
             return {}
 
     try:
@@ -461,13 +599,16 @@ def sniff_metadata(url):
              metadata["source"] = normalize_source(metadata["author"], metadata["source"])
 
         if metadata["title"] or metadata["publish_date"]:
-             print(f"  [Sniffed Metadata] Title: {metadata['title'][:50]}, Date: {metadata['publish_date']}")
+            print(f"  [Sniffed Metadata] Title: {metadata['title'][:50]}, Date: {metadata['publish_date']}")
+        _sniff_cache[url] = metadata
         return metadata
     except Exception as e:
         print(f"  [Sniffing Failed] {e}")
         return {}
 
-def extract_from_url(url, model_name="gemini-3.1-flash-preview"):
+def extract_from_url(url, model_name=None):
+    if model_name is None:
+        model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
     """Extract content from URL. Uses fxtwitter for X posts, otherwise Defuddle CLI."""
     import subprocess
     import json
@@ -658,6 +799,9 @@ def extract_from_url(url, model_name="gemini-3.1-flash-preview"):
 
         # TIER 2: Defuddle CLI - Standalone Optimized
         defuddle_cli = os.path.join(POSTFDRY_ROOT, "lib", "defuddle", "dist", "cli.js")
+        if not os.path.exists(defuddle_cli):
+            # Fallback: defuddle installed via baoyu-skills in parent dir
+            defuddle_cli = os.path.join(os.path.dirname(POSTFDRY_ROOT), "baoyu-skills", "node_modules", "defuddle", "dist", "cli.js")
 
         # Cross-platform binary resolution
         ext = ".exe" if os.name == 'nt' else ""
@@ -752,62 +896,74 @@ def extract_from_url(url, model_name="gemini-3.1-flash-preview"):
 
 
     elif "medium.com/" in url:
-        print(f"Crawler Agent: Detected Medium URL. Fetching via Playwright...")
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=['--disable-blink-features=AutomationControlled']
-                )
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                page = context.new_page()
-                page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                try:
-                    page.wait_for_selector("article, [data-testid='post-title']", timeout=20000)
-                except Exception:
-                    page.wait_for_timeout(3000)
-                html_content = page.content()
-                browser.close()
-
+        # Medium is behind Cloudflare. Try jina first (reliable, has all images).
+        # Only fall back to Playwright/Apollo if jina is unavailable.
+        print(f"Crawler Agent: Detected Medium URL. Fetching via r.jina.ai first...")
+        jina_result = _fetch_via_jina(url)
+        if jina_result:
+            jina_meta, jina_body = jina_result
+            if jina_meta.get("title"): title = jina_meta["title"]
+            if jina_meta.get("author") and jina_meta["author"] != "Unknown": author = jina_meta["author"]
+            if jina_meta.get("publish_date"): extracted_date = jina_meta["publish_date"]
+            if jina_meta.get("source"): source = jina_meta["source"]
             organization = source
-            # Try JSON-LD first for metadata
-            ld_meta = extract_ld_json_metadata(html_content)
-            # Try Apollo State for content and fallback metadata
-            apollo_result = extract_medium_apollo_state(html_content)
-
-            if ld_meta:
-                author = ld_meta.get("author") or author
-                extracted_date = ld_meta.get("publish_date") or extracted_date
-                organization = ld_meta.get("source") or organization
-                title = ld_meta.get("title") or title
-
-            if apollo_result:
-                print("Crawler Agent: Successfully extracted content from Medium Apollo State.")
-                md_content = apollo_result.get("content", "")
-                if not title: title = apollo_result.get("title")
-                if not author or author == "Unknown": author = apollo_result.get("author")
-                if not extracted_date: extracted_date = apollo_result.get("publish_date")
-                if not organization or organization == "Medium": organization = apollo_result.get("source")
-            else:
-                soup = BeautifulSoup(html_content, "html.parser")
-                article = soup.find("article") or soup.find("main") or soup.body
-                md_content = html_to_markdown(article)
-
-            # Ensure organization follows the "Author, Platform" pattern if it's just a platform name
+            md_content = jina_body
             if author and author != "Unknown":
                 sniffed["source"] = normalize_source(author, organization)
+        else:
+            # jina failed, try Playwright + Apollo as fallback
+            print(f"Crawler Agent: r.jina.ai failed. Trying Playwright as fallback...")
+            try:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=['--disable-blink-features=AutomationControlled']
+                    )
+                    context = browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    )
+                    page = context.new_page()
+                    page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    try:
+                        page.wait_for_selector("article, [data-testid='post-title']", timeout=20000)
+                    except Exception:
+                        page.wait_for_timeout(3000)
+                    html_content = page.content()
+                    browser.close()
 
-        except Exception as e:
-            error_msg = f"Error parsing Medium with Playwright: {e}"
-            print(error_msg)
-            return error_msg
+                organization = source
+                ld_meta = extract_ld_json_metadata(html_content)
+                apollo_result = extract_medium_apollo_state(html_content)
+                if ld_meta:
+                    author = ld_meta.get("author") or author
+                    extracted_date = ld_meta.get("publish_date") or extracted_date
+                    organization = ld_meta.get("source") or organization
+                    title = ld_meta.get("title") or title
+                if apollo_result:
+                    print("Crawler Agent: Successfully extracted content from Medium Apollo State.")
+                    md_content = apollo_result.get("content", "")
+                    if not title: title = apollo_result.get("title")
+                    if not author or author == "Unknown": author = apollo_result.get("author")
+                    if not extracted_date: extracted_date = apollo_result.get("publish_date")
+                    if not organization or organization == "Medium": organization = apollo_result.get("source")
+                else:
+                    soup = BeautifulSoup(html_content, "html.parser")
+                    article = soup.find("article") or soup.find("main") or soup.body
+                    md_content = html_to_markdown(article)
+                if author and author != "Unknown":
+                    sniffed["source"] = normalize_source(author, organization)
+            except Exception as e:
+                error_msg = f"Error parsing Medium: both r.jina.ai and Playwright failed: {e}"
+                print(error_msg)
+                return error_msg
 
     else:
         # Standalone: Resolve internal Defuddle path
         defuddle_cli = os.path.join(POSTFDRY_ROOT, "lib", "defuddle", "dist", "cli.js")
+        if not os.path.exists(defuddle_cli):
+            # Fallback: defuddle installed via baoyu-skills in parent dir
+            defuddle_cli = os.path.join(os.path.dirname(POSTFDRY_ROOT), "baoyu-skills", "node_modules", "defuddle", "dist", "cli.js")
 
         # Cross-platform binary resolution
         ext = ".exe" if os.name == 'nt' else ""
@@ -909,7 +1065,59 @@ def extract_from_url(url, model_name="gemini-3.1-flash-preview"):
 
     # 5. Semantic Boilerplate Scouting (LLM)
     # The USER requested LLM-based analysis of the head and tail to identify the real content boundaries.
-    md_content = identify_boilerplate_via_llm(md_content, model_name=model_name)
+    # For jina-sourced Medium content, use fast regex cleaning instead of slow LLM Scout
+    _use_llm_scout = True
+    if 'jina' in (sniffed.get('source', '') + source).lower() or _jina_cache:
+        # Content came from jina - already has Medium page noise cleaned by regex
+        # Just do a quick regex pass for common head/tail noise
+        _use_llm_scout = False
+        # Strip entire author bio block: from "### About Our Contributing Expert" or "## 人名 | 职位" 
+        # through the author photo and bio text, up to the next real content heading
+        # Pattern 1: "### About Our Contributing Expert" + "## Name | Title" + photo + bio
+        md_content = re.sub(
+            r'^###\s+About\s+Our\s+Contributing.*?(?=\n##\s+(?:Let|Most|\d|How|Why|What|The|Signs|Data|AI|Models|Every|Full|Core|Q\d)|\Z)',
+            '', md_content, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Pattern 2: "## Name | Title" (without About heading) + bio
+        md_content = re.sub(
+            r'^##\s+[A-Z][a-zA-Z\s]+\s*\|[^\n]*\n.*?(?=\n##\s+(?:Let|Most|\d|How|Why|What|The|Signs|Data|AI|Models|Every|Full|Core|Q\d)|\Z)',
+            '', md_content, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Pattern 3: "Author: [Name](linkedin)" line
+        md_content = re.sub(r'^Author:\s*\[.*?\]\(.*?\)\s*\n', '', md_content, flags=re.MULTILINE | re.IGNORECASE)
+        # Strip "About the Author" sections
+        md_content = re.sub(r'(?i)#{2,3}\s+About\s+(?:the\s+)?Author.*?(?=\n#{1,3}\s|\Z)', '', md_content, flags=re.DOTALL)
+        # Strip Expert's Desk menu link
+        md_content = re.sub(r'^##\s+\[Expert.*?\]\(.*?\)\s*\n', '', md_content, flags=re.MULTILINE | re.IGNORECASE)
+        # Strip standalone author photo + bio: image followed by [Name](linkedin) is a ...
+        md_content = re.sub(r'^!\[Image.*?\]\(.*?\)\s*\n+\[?\*?\*?[A-Z][a-z].*?\]?\(https://(?:www\.)?linkedin\.com/.*?\)\s+is\s+.*?(?=\n#{1,3}\s|\n\n[A-Z]|\Z)', '', md_content, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE)
+        # Strip trailing newsletter/ad sections
+        md_content = re.sub(r'\n##\s+(?:Subscribe|Get\s+\w|Join\s+Medium|Follow\s+me).*', '', md_content, flags=re.DOTALL | re.IGNORECASE)
+        # Strip trailing ad blocks: link to external report followed by an image, only in last 20% of content
+        _tail = md_content[int(len(md_content)*0.8):]
+        _tail = re.sub(r'\n[^#\n]*?(?:report|survey|newsletter)\s*👇?\s*:.*?\n!\[.*?\]\(.*?\).*', '', _tail, flags=re.DOTALL | re.IGNORECASE)
+        _tail = re.sub(r'\n##\s*\.\s*$', '', _tail, flags=re.MULTILINE)
+        md_content = md_content[:int(len(md_content)*0.8)] + _tail
+        md_content = re.sub(r'\n\[!\[.*?\]\(.*?\)\]\(https://(?:medium\.com|linkedin\.com).*?\).*', '', md_content)
+        md_content = re.sub(r'\n{3,}', '\n\n', md_content).strip()
+        print(f"  [Scout] Skipped LLM Scout (jina content), used fast regex cleaning instead.")
+
+    if _use_llm_scout:
+        # Save images before Scout, restore any that get stripped
+        _scout_img_placeholders = {}
+        def _scout_replace_img(match):
+            idx = len(_scout_img_placeholders)
+            placeholder = f"[[SCOUT_IMG_{idx}]]"
+            _scout_img_placeholders[placeholder] = match.group(0)
+            return placeholder
+        md_content = re.sub(r'!\[.*?\]\([^)]+\)', _scout_replace_img, md_content)
+        md_content = identify_boilerplate_via_llm(md_content, model_name=model_name)
+        # Restore image placeholders that survived Scout.
+        for placeholder, original_tag in _scout_img_placeholders.items():
+            if placeholder in md_content:
+                md_content = md_content.replace(placeholder, original_tag)
+            else:
+                print(f"  [Scout] Image stripped by head/tail cleaning (not restored): {original_tag[:60]}...")
 
     # 6. Boilerplate Scrubbing (Header-independent Bio/Intro stripping)
     # This pre-cleaning reduces noise for the AI refinement stage.
@@ -986,7 +1194,7 @@ Rules:
     ]
     
     client = get_client()
-    for ocr_model in ["gemini-3.1-flash-preview", "gemini-2.5-flash"]:
+    for ocr_model in ["dashscope::glm-5.2", "gemini-2.5-flash"]:
         try:
             print(f"Crawler Agent: Invoking LLM for PDF OCR (Model: {ocr_model})...")
             result = client.generate_content(content_payload, model_name=ocr_model)
@@ -1207,7 +1415,9 @@ def extract_from_file(filepath, assets_dir=None, md_img_prefix=""):
         "url": filepath
     }, content
 
-def refine_extracted_content(metadata, body, model_name="gemini-3.1-pro-preview"):
+def refine_extracted_content(metadata, body, model_name=None):
+    if model_name is None:
+        model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
     """Refine extracted content using AI and format as strict YAML."""
     # Standalone: common_utils and llm_utils are in the same agents directory
     from llm_utils import get_client
@@ -1405,7 +1615,9 @@ def _is_tiny_icon(filepath, threshold=50):
     except Exception:
         return False
 
-def run(target_input, output_file=None, skip_refine=False, model_name="gemini-3.1-flash-preview"):
+def run(target_input, output_file=None, skip_refine=False, model_name=None):
+    if model_name is None:
+        model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
     # --- Resolve assets_dir EARLY (needed for pre-localize before AI refine) ---
     import urllib.parse, shutil
     if output_file:
@@ -1468,7 +1680,18 @@ def run(target_input, output_file=None, skip_refine=False, model_name="gemini-3.
     if not skip_refine:
         res = refine_extracted_content(metadata, body, model_name=model_name)
     else:
-        res = f"---\ntitle: {metadata['title']}\nsource: {metadata['source']}\nauthor: {metadata['author']}\npublish_date: {metadata['publish_date']}\nurl: {metadata['url']}\n---\n\n{body}"
+        import yaml as _yaml
+        _yaml_data = {
+            'title': metadata['title'],
+            'eng_title': metadata['title'],
+            'source': metadata['source'],
+            'author': metadata['author'],
+            'original_author': metadata['author'],
+            'original_path': '',
+            'date': metadata['publish_date'],
+            'url': metadata['url']
+        }
+        res = f"---\n{_yaml.safe_dump(_yaml_data, allow_unicode=True)}---\n\n{body}"
 
     # Localize any remaining remote HTTP images in the refined output
     print("Crawler Agent: Localizing remote images...")
@@ -1495,7 +1718,9 @@ def run(target_input, output_file=None, skip_refine=False, model_name="gemini-3.
         print(res[:800] + "...")
     return res
 
-def identify_boilerplate_via_llm(md_content, model_name="gemini-3.1-flash-preview"):
+def identify_boilerplate_via_llm(md_content, model_name=None):
+    if model_name is None:
+        model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
     """
     Analyzes the head and tail of the document to semantically identify
     where the core content starts and ends, stripping marketing/newsletter noise.

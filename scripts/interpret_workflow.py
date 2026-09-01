@@ -98,7 +98,7 @@ import translator_agent
 import rewriter_agent
 import lead_in_agent
 
-def run_interpret_workflow(input_file, project_root=None, text_style="formal", cover_style="Industrial Amber", info_style="Industrial Amber", type_selection="trend", unslop_domain="中国政企特色数据治理", thoughts="", gen_images=False, model_name="gemini-3-flash-preview", image_model="vertex", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author="", vision_model=None):
+def run_interpret_workflow(input_file, project_root=None, text_style="formal", cover_style="Industrial Amber", info_style="Industrial Amber", type_selection="trend", unslop_domain="中国政企特色数据治理", thoughts="", gen_images=False, model_name="dashscope::glm-5.2", image_model="vertex", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, summary_mode="preset", summary_prompt="", generate_summary=None, narrative_theme="", author="", vision_model=None):
     if generate_summary is not None:
         summary_mode = "explicit" if generate_summary else "none"
     if summary_mode == "preset":
@@ -505,7 +505,7 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
             # Skip redundant captions for decorative/structural images
             caption_html = ""
-            is_generic = alt.lower() in ["image", "img", "chart", "[image]", "图片", "图表", "cover"]
+            is_generic = alt.lower() in ["image", "img", "chart", "[image]", "图片", "图表", "cover", "none", ""]
             if not is_generic and not alt.startswith("Infographic") and not alt.startswith("Cover"):
                 caption_html = f'\n  <p class="chart-caption">{alt}</p>'
 
@@ -676,7 +676,7 @@ if __name__ == "__main__":
     parser.add_argument("--info-style", default="Industrial Amber", help="Infographic visual style")
     parser.add_argument("--type", default="trend", choices=["paper", "trend", "policy", "product", "standard"], help="Article type")
     parser.add_argument("--unslop", default="中国政企特色数据治理", help="Unslop domain domain")
-    parser.add_argument("--model", default="gemini-3-flash-preview", help="LLM model name")
+    parser.add_argument("--model", default="dashscope::glm-5.2", help="LLM model name")
     parser.add_argument("--image-model", type=str, default="vertex", help="Image generation model/engine")
     parser.add_argument("--vision-model", type=str, default=None, help="Vision (VLM) model for localization, format vendor:model")
     parser.add_argument("--thoughts", default="", help="Editor thoughts/instructions")

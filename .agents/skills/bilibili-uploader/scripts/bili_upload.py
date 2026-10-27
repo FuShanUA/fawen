@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -7,10 +8,27 @@ import time
 import shutil
 import subprocess
 from bilibili_api import video_uploader, Credential, sync
-from bilibili_api.video_uploader import VideoUploaderEvents
+from bilibili_api.video_uploader import VideoUploaderEvents, Lines
 from bilibili_api.utils.network import Api, get_api, request_settings
 
 request_settings.set_timeout(60)
+
+# Patch _probe to guarantee a fallback line when all CDN probes fail.
+# Without this, _probe() returns None if every CDN probe times out,
+# and VideoUploader._preupload crashes with 'NoneType' is not subscriptable.
+_orig_probe = video_uploader._probe
+
+
+async def _safe_probe():
+    result = await _orig_probe()
+    if result is None:
+        first_line = next(iter(video_uploader.LINES_INFO.values()))
+        print("⚠️ B站线路探测全部失败，使用默认线路 fallback。", flush=True)
+        return first_line
+    return result
+
+
+video_uploader._probe = _safe_probe
 
 # Route GLM models through Bailian (Dashscope) instead of Zhipu
 os.environ.setdefault("ACTIVE_LLM_VENDOR", "Alibaba (Bailian)")
@@ -23,9 +41,74 @@ try:
     _LLM_AVAILABLE = True
 except Exception:
     _LLM_AVAILABLE = False
+try:
+    from cover_utils import generate_platform_covers
+    _COVER_UTILS_AVAILABLE = True
+except Exception:
+    _COVER_UTILS_AVAILABLE = False
+try:
+    from subtitle_title import SubtitleTitleError, build_subtitle_grounded_title
+    _SUBTITLE_TITLE_AVAILABLE = True
+except Exception:
+    SubtitleTitleError = ValueError
+    _SUBTITLE_TITLE_AVAILABLE = False
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_COOKIES = os.path.join(SKILL_DIR, "assets", "cookies.json")
+PRE_INFO_CACHE_PATH = os.path.join(SKILL_DIR, "assets", "pre_info_cache.json")
+PRE_INFO_CACHE_TTL_SECONDS = 600
+
+
+def _credential_fingerprint(cookies):
+    """Identify a cache entry without persisting credential values."""
+    material = "|".join(
+        str(cookies.get(key, ""))
+        for key in ("SESSDATA", "bili_jct", "buvid3", "buvid4")
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+def _load_cached_pre_info(cookies, now=None):
+    try:
+        with open(PRE_INFO_CACHE_PATH, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("credential_fingerprint") != _credential_fingerprint(cookies):
+        return None
+    try:
+        saved_at = float(payload.get("saved_at", 0))
+    except (TypeError, ValueError):
+        return None
+    current_time = time.time() if now is None else now
+    if current_time - saved_at > PRE_INFO_CACHE_TTL_SECONDS:
+        return None
+    data = payload.get("data")
+    return data if isinstance(data, dict) and data else None
+
+
+def _save_cached_pre_info(cookies, pre_info):
+    if not isinstance(pre_info, dict):
+        return
+    payload = {
+        "credential_fingerprint": _credential_fingerprint(cookies),
+        "saved_at": time.time(),
+        "data": pre_info,
+    }
+    os.makedirs(os.path.dirname(PRE_INFO_CACHE_PATH), exist_ok=True)
+    temporary_path = PRE_INFO_CACHE_PATH + ".tmp"
+    try:
+        with open(temporary_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+        os.replace(temporary_path, PRE_INFO_CACHE_PATH)
+    except OSError:
+        try:
+            os.remove(temporary_path)
+        except OSError:
+            pass
+
 
 def _autosub_llm_default():
     try:
@@ -185,41 +268,80 @@ def build_description(video_path, title, description, llm_provider="dashscope", 
     print(">>> 简介来源：使用标题作为简介")
     return title
 
-def build_title(video_path, original_title, llm_provider="dashscope", llm_model="glm-5.2"):
-    """Generate an attractive B站 title from subtitle content via LLM.
-    Falls back to the original filename-based title if LLM is unavailable."""
-    sub_text, sub_src = _read_subtitle_text(video_path)
-    if sub_text and _LLM_AVAILABLE:
-        try:
-            client = _get_llm_client()
-            out = client.generate_content(
-                f"""根据以下视频字幕，拟定一个吸引人的B站视频标题。
-要求：
-- 10-30个字，简洁有力
-- 体现视频的核心主题或最亮眼的观点
-- 可以包含关键人名/公司名/技术名
-- 不要用"震惊""必看"等标题党词汇
-- 不要用书名号、括号、引号等符号
-- 直接输出标题文字，不要任何解释
+def build_title(
+    video_path,
+    original_title,
+    llm_provider="dashscope",
+    llm_model="glm-5.2",
+):
+    """Generate a restrained Bilibili form title from subtitle content.
 
-原始文件名（参考）：{original_title}
-字幕内容：
-{sub_text}
+    The filename title is intentionally not used as LLM context or as a
+    fallback. Every automatic title must either be validated against exact
+    subtitle evidence or be an exact extractive subtitle clause.
+    """
+    if not _SUBTITLE_TITLE_AVAILABLE:
+        raise SubtitleTitleError("subtitle_title module is unavailable")
+    client = _get_llm_client() if _LLM_AVAILABLE else None
+    grounded = build_subtitle_grounded_title(
+        video_path,
+        llm_client=client,
+        model_name=llm_model,
+        max_title_chars=48,
+        min_title_chars=12,
+        platform_hint="B站表单标题应平实、准确、克制，不要照搬封面标题。",
+        title_style="plain",
+    )
+    print(f">>> 标题来源：{grounded.source}（{os.path.basename(grounded.subtitle_path)}）")
+    print(f"    原标题: {original_title}")
+    print(f"    新标题: {grounded.title}")
+    for fragment in grounded.evidence:
+        print(f"    字幕证据: {fragment}")
+    return grounded.title
 
-只输出标题。""",
-                model_name=llm_model
-            )
-            if out:
-                new_title = out.strip().strip('"\'「」『』""''').strip()
-                if len(new_title) <= 80 and len(new_title) >= 5:
-                    print(f">>> 标题来源：根据字幕内容生成（{os.path.basename(sub_src)}）")
-                    print(f"    原标题: {original_title}")
-                    print(f"    新标题: {new_title}")
-                    return new_title
-        except Exception as e:
-            print(f">>> LLM标题生成失败: {e}")
-    print(f">>> 标题来源：使用文件名标题")
-    return original_title
+
+def build_cover_title(
+    video_path,
+    llm_provider="dashscope",
+    llm_model="glm-5.2",
+    attribution=None,
+):
+    """Generate the separate editorial headline rendered on Bilibili covers."""
+    if not _SUBTITLE_TITLE_AVAILABLE:
+        raise SubtitleTitleError("subtitle_title module is unavailable")
+    client = _get_llm_client() if _LLM_AVAILABLE else None
+    grounded = build_subtitle_grounded_title(
+        video_path,
+        llm_client=client,
+        model_name=llm_model,
+        max_title_chars=48,
+        min_title_chars=12,
+        platform_hint="B站封面标题可以更有信息量，但仍要专业、克制。",
+        title_style="cover_headline",
+        attribution=attribution,
+    )
+    print(f">>> 封面标题来源：{grounded.source}（{os.path.basename(grounded.subtitle_path)}）")
+    print(f"    封面标题: {grounded.title}")
+    for fragment in grounded.evidence:
+        print(f"    字幕证据: {fragment}")
+    return grounded.title
+
+
+def _generate_bili_covers(video_path, title):
+    """Generate Bilibili's 16:9 upload cover and 4:3 companion asset."""
+    if not _COVER_UTILS_AVAILABLE:
+        print(">>> ❌ 封面生成模块不可用，已停止上传")
+        return None, None
+    try:
+        wide_path, four_by_three_path = generate_platform_covers(
+            video_path,
+            "bilibili",
+            title,
+        )
+        return wide_path, four_by_three_path
+    except Exception as e:
+        print(f">>> ❌ 生成B站封面失败: {e}")
+        return None, None
 
 def find_ffmpeg():
     try:
@@ -382,10 +504,102 @@ async def get_target_season(pre_info, title, full_text, target_season_name=None,
     print(f">>> 无精确匹配，使用第一个合集作为兜底: {name0}")
     return s0.get("id"), name0
 
+
+def _register_bili_uploader_events(uploader, last_progress):
+    """Expose upload/submit transitions so the batch watchdog can see them."""
+
+    @uploader.on(VideoUploaderEvents.AFTER_CHUNK.value)
+    async def on_after_chunk(data):
+        chunk_idx = data.get("chunk_number", 0)
+        total = data.get("total_chunk_count", 0)
+        if total > 0:
+            progress = (chunk_idx / total) * 100
+            if progress - last_progress[0] >= 1.0 or progress >= 100:
+                print(f">>> 上传进度: {progress:.1f}%", flush=True)
+                last_progress[0] = progress
+                print(f"Progress: {progress:.1f}%", flush=True)
+
+    @uploader.on(VideoUploaderEvents.PRE_PAGE_SUBMIT.value)
+    async def on_pre_page_submit(data):
+        print(">>> 分块传输完成，提交分P元数据...", flush=True)
+
+    @uploader.on(VideoUploaderEvents.AFTER_PAGE_SUBMIT.value)
+    async def on_after_page_submit(data):
+        print(">>> 分P元数据已提交...", flush=True)
+
+    @uploader.on(VideoUploaderEvents.AFTER_PAGE.value)
+    async def on_after_page(data):
+        print(">>> 分块上传完成，进入封面/发布提交...", flush=True)
+        if last_progress[0] < 99.0:
+            last_progress[0] = 99.0
+            print("Progress: 99.0%", flush=True)
+
+    @uploader.on(VideoUploaderEvents.PRE_COVER.value)
+    async def on_pre_cover(data):
+        print(">>> 正在上传B站封面...", flush=True)
+
+    @uploader.on(VideoUploaderEvents.AFTER_COVER.value)
+    async def on_after_cover(data):
+        print(">>> B站封面上传完成...", flush=True)
+
+    @uploader.on(VideoUploaderEvents.PRE_SUBMIT.value)
+    async def on_pre_submit(data):
+        print(">>> 正在提交B站发布请求...", flush=True)
+
+    @uploader.on(VideoUploaderEvents.AFTER_SUBMIT.value)
+    async def on_after_submit(data):
+        print(">>> B站发布请求已返回，等待解析响应...", flush=True)
+
+
+def _upload_total_timeout():
+    """Total wall-clock limit for one Bilibili upload attempt."""
+    try:
+        return float(os.environ.get("BILI_UPLOAD_TIMEOUT_SECONDS", "7200"))
+    except ValueError:
+        return 7200.0
+
+
+async def _start_uploader_with_heartbeat(uploader, timeout=None):
+    """Run uploader.start() with heartbeats and a hard attempt timeout."""
+    if timeout is None:
+        timeout = _upload_total_timeout()
+    task = asyncio.create_task(uploader.start())
+    deadline = time.monotonic() + timeout
+    waited = 0
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        wait_timeout = min(60.0, remaining)
+        done, _ = await asyncio.wait({task}, timeout=wait_timeout)
+        if done:
+            return task.result()
+        waited += wait_timeout
+        if waited >= 60:
+            print(f">>> B站接口仍在等待响应（{waited // 60}分钟）...", flush=True)
+
+    if task.done():
+        return task.result()
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        raise TimeoutError(
+            f"B站上传超过 {timeout:.0f} 秒未返回，已取消本次上传；底层任务退出时还报错: {e}"
+        ) from e
+    raise TimeoutError(
+        f"B站上传超过 {timeout:.0f} 秒未返回，已取消本次上传。"
+        "若持续出现，请检查 VPN/代理对 B站上传端点的路由。"
+    )
+
+
 async def upload_video(video_path, title, tid=None, season_id=None, tags=None,
                       description=None, is_private=True, season_name=None,
                       category_name=None, llm_provider="dashscope", llm_model="glm-5.2",
-                      auto_title=True):
+                      auto_title=True, attribution=None, cover_title=None):
     if not os.path.exists(DEFAULT_COOKIES):
         print("Error: 找不到 cookies.json"); return False
     with open(DEFAULT_COOKIES, "r", encoding="utf-8") as f:
@@ -400,9 +614,59 @@ async def upload_video(video_path, title, tid=None, season_id=None, tags=None,
             cred_kwargs["buvid4"] = c["buvid4"]
         credential = Credential(**cred_kwargs)
     _API = get_api("video_uploader")
-    pre_info = await Api(**_API["pre"], credential=credential).result
+
+    async def _fetch_pre_info(attempts=5):
+        last_error = None
+        retry_waits = {1: 5, 2: 10, 3: 20, 4: 40}
+        for attempt in range(1, attempts + 1):
+            try:
+                result = await Api(**_API["pre"], credential=credential).result
+                _save_cached_pre_info(c, result)
+                return result
+            except Exception as e:
+                last_error = e
+                if attempt == attempts:
+                    break
+                wait = retry_waits.get(attempt, 40)
+                brief = str(e).split("<")[0].strip()[:160]
+                print(
+                    f">>> ⚠️ B站预上传信息获取失败（attempt {attempt}/{attempts}）: "
+                    f"{type(e).__name__}: {brief}",
+                    flush=True,
+                )
+                print(f">>> {wait}s 后重试...", flush=True)
+                await asyncio.sleep(wait)
+        raise last_error
+
+    pre_info = _load_cached_pre_info(c)
+    if pre_info is None:
+        pre_info = await _fetch_pre_info()
+    else:
+        print(">>> 使用 10 分钟内的 B站预上传信息缓存。", flush=True)
     if auto_title:
-        title = build_title(video_path, title, llm_provider=llm_provider, llm_model=llm_model)
+        try:
+            title = build_title(
+                video_path,
+                title,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+            )
+        except SubtitleTitleError as e:
+            print(f">>> ❌ 自动标题失败：{e}")
+            print(">>> 已停止上传。请先生成/翻译字幕，或显式使用 --no_auto_title。")
+            return False
+    if cover_title is None:
+        try:
+            cover_title = build_cover_title(
+                video_path,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                attribution=attribution,
+            )
+        except SubtitleTitleError as e:
+            print(f">>> ❌ 封面标题无法从字幕提炼：{e}")
+            print(">>> 已停止上传。封面标题不能来自表单标题或文件名。")
+            return False
     match_context = title
     if category_name and not tid:
         tid, pname = get_smart_partition(pre_info, match_context, f"{video_path} {description or ''}", category_name)
@@ -423,30 +687,12 @@ async def upload_video(video_path, title, tid=None, season_id=None, tags=None,
             tags = ["人工智能", "AI", "自动化"]
             print(">>> 标签来源：默认标签（LLM 生成失败，回退）")
     print(f">>> 分配的标签: {', '.join(tags)}")
-    base_name = os.path.splitext(video_path)[0]
-    cover_path = base_name + ".jpg"
-    def _is_portrait(path):
-        try:
-            from PIL import Image
-            with Image.open(path) as im: return im.size[0] < im.size[1]
-        except: return False
-    if os.path.exists(cover_path) and _is_portrait(cover_path):
-        shutil.copy2(cover_path, base_name + ".portrait.jpg")
-        os.remove(cover_path)
-    if not os.path.exists(cover_path):
-        ffmpeg = find_ffmpeg()
-        if ffmpeg:
-            print(">>> 未找到横版封面，正在从视频截取横版帧...")
-            extract_best_cover(ffmpeg.strip('"'), video_path, cover_path)
-    if not os.path.exists(cover_path):
-        # 抽帧失败（视频损坏/无法读取）时生成纯色兜底封面，避免
-        # VideoMeta/VideoUploader 收到空路径而崩溃。
-        try:
-            from PIL import Image
-            Image.new("RGB", (1146, 717), (24, 24, 32)).save(cover_path, "JPEG")
-            print(">>> 生成兜底封面（视频无法抽帧，使用纯色封面）")
-        except Exception as e:
-            print(f">>> ⚠️ 无法生成封面: {e}")
+    cover_path, cover_4x3_path = _generate_bili_covers(video_path, cover_title)
+    if not cover_path or not cover_4x3_path or not os.path.isfile(cover_path):
+        print(">>> 已停止上传，避免提交随机截图封面。")
+        return False
+    print(f">>> B站主封面（16:9）: {cover_path}")
+    print(f">>> B站备用封面（4:3）: {cover_4x3_path}")
     meta = video_uploader.VideoMeta(
         tid=tid, title=title, desc=description, tags=tags,
         cover=cover_path if os.path.exists(cover_path) else None,
@@ -482,34 +728,42 @@ async def upload_video(video_path, title, tid=None, season_id=None, tags=None,
         uploader_kwargs["cover"] = cover_path
     uploader = video_uploader.VideoUploader(**uploader_kwargs)
     last_progress = [-10.0]
-    @uploader.on(VideoUploaderEvents.AFTER_CHUNK.value)
-    async def on_after_chunk(data):
-        chunk_idx = data.get("chunk_number", 0)
-        total = data.get("total_chunk_count", 0)
-        if total > 0:
-            progress = (chunk_idx / total) * 100
-            if progress - last_progress[0] >= 1.0 or progress >= 100:
-                print(f">>> 上传进度: {progress:.1f}%", flush=True)
-                last_progress[0] = progress
-                print(f"Progress: {progress:.1f}%", flush=True)
-    @uploader.on(VideoUploaderEvents.AFTER_PAGE.value)
-    async def on_after_page(data):
-        print("\n>>> 分块上传完成，正在提交发布...")
-    try:
-        print(f">>> 开始上传: {title}...")
-        result = await uploader.start()
-        print(f"\n>>> B站API返回: {result}")
-        if not result or "bvid" not in result:
-            print("\n❌ 上传失败：B站未返回有效的 bvid")
+    _register_bili_uploader_events(uploader, last_progress)
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            print(f">>> 开始上传: {title}... (attempt {attempt}/{max_attempts})")
+            result = await _start_uploader_with_heartbeat(uploader)
+            print(f"\n>>> B站API返回: {result}")
+            if not result or "bvid" not in result:
+                print("\n❌ 上传失败：B站未返回有效的 bvid")
+                if attempt < max_attempts:
+                    wait = 10 * attempt
+                    print(f">>> {wait}s 后重试...")
+                    await asyncio.sleep(wait)
+                    # Re-create uploader for retry: B站不支持续传，
+                    # 每次上传是独立 session，必须从头开始传。
+                    uploader = video_uploader.VideoUploader(**uploader_kwargs)
+                    last_progress[0] = -10.0
+                    _register_bili_uploader_events(uploader, last_progress)
+                    continue
+                return False
+            print("\n✅ 上传完成！")
+            return True
+        except Exception as e:
+            err_brief = str(e).split("<")[0].strip()[:200]
+            print(f"\n❌ 失败 (attempt {attempt}/{max_attempts}): {err_brief}")
+            import traceback
+            traceback.print_exc()
+            if attempt < max_attempts:
+                wait = 10 * attempt
+                print(f">>> {wait}s 后重试...")
+                await asyncio.sleep(wait)
+                uploader = video_uploader.VideoUploader(**uploader_kwargs)
+                last_progress[0] = -10.0
+                _register_bili_uploader_events(uploader, last_progress)
+                continue
             return False
-        print("\n✅ 上传完成！")
-        return True
-   except Exception as e:
-       err_brief = str(e).split("<")[0].strip()[:200]
-       print(f"\n❌ 失败: {err_brief}")
-        import traceback
-        traceback.print_exc()
-       return False
 
 import argparse
 if __name__ == "__main__":
@@ -526,7 +780,21 @@ if __name__ == "__main__":
     parser.add_argument("--llm-model", type=str, default=_def_model)
     parser.add_argument("--llm-provider", type=str, default=_def_prov)
     parser.add_argument("--public", action="store_true")
-    parser.add_argument("--no_auto_title", action="store_true", help="Disable LLM-based title generation, use filename title as-is")
+    parser.add_argument(
+        "--no_auto_title",
+        action="store_true",
+        help="Keep the provided form title; cover title is still derived from subtitles",
+    )
+    parser.add_argument(
+        "--attribution",
+        default=None,
+        help="Optional speaker/company prefix, e.g. Palantir CEO卡普",
+    )
+    parser.add_argument(
+        "--cover-title",
+        default=None,
+        help="Text rendered on the cover image (default: subtitle-grounded title)",
+    )
     args = parser.parse_args()
     tags = [t.strip() for t in re.split(r'[,，、]', args.tags) if t.strip()] if args.tags else None
     def _run_upload():
@@ -549,7 +817,9 @@ if __name__ == "__main__":
                 tags=tags, description=args.desc, llm_provider=args.llm_provider,
                 llm_model=args.llm_model, is_private=not args.public,
                 season_name=args.season_name, category_name=args.category_name,
-                auto_title=not args.no_auto_title
+                auto_title=not args.no_auto_title,
+                attribution=args.attribution,
+                cover_title=args.cover_title,
             ))
         finally:
             # Cancel pending tasks before closing the loop to prevent

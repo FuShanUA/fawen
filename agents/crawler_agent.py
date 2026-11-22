@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup, NavigableString, Tag
 from playwright.sync_api import sync_playwright
 import requests
+from image_url_utils import resolve_image_url
+from markdown_cleanup import sanitize_medium_markdown
 
 # Path for common_utils and llm_utils
 AGENTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1693,19 +1695,22 @@ def run(target_input, output_file=None, skip_refine=False, model_name=None):
         }
         res = f"---\n{_yaml.safe_dump(_yaml_data, allow_unicode=True)}---\n\n{body}"
 
-    # Localize any remaining remote HTTP images in the refined output
+    # Localize any remaining remote HTTP images in the refined output.
     print("Crawler Agent: Localizing remote images...")
-    img_pattern = r'!\[(.*?)\]\((http[s]?://[^\s\)]+)\)'
+    img_pattern = r'!\[(.*?)\]\((http[s]?://[^\s\)]+|/[^\s\)]+)\)'
 
     def img_replacer(match):
         alt = match.group(1)
-        url = match.group(2)
+        url = resolve_image_url(match.group(2), metadata.get('url', ''))
+        if not url:
+            return match.group(0)
         filename = download_image(url, assets_dir)
         if filename:
             return f"![{alt}]({md_img_prefix}{filename})"
         return match.group(0)
 
     res = re.sub(img_pattern, img_replacer, res)
+    res = sanitize_medium_markdown(res)
 
     if output_file:
         out_dir = os.path.dirname(output_file)

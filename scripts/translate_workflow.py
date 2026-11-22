@@ -20,9 +20,11 @@ for d in [common_dir, agents_dir]:
         sys.path.remove(d)
     sys.path.insert(0, d)
 
-from common_utils import MetadataEngine, deterministic_scrub
+from common_utils import MetadataEngine, deterministic_scrub, resolve_article_author, resolve_translator
 import translator_agent
 import localizer_agent
+from image_url_utils import resolve_image_url
+from markdown_cleanup import sanitize_medium_markdown
 
 # Dynamic import for crawler_agent to support asset materialization
 try:
@@ -266,7 +268,7 @@ class ProfessionalAssembler:
         return full_html
 
 class TranslationWorkflow:
-    def __init__(self, input_file, project_root=None, cover_style="Federation", model_name="gemini-3-flash-preview", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, image_model=None, vision_model=None):
+    def __init__(self, input_file, project_root=None, cover_style="Federation", model_name="dashscope::glm-5.2", target_title="", reuse_translation=False, localize_images=False, force_relocalize=False, non_interactive=False, image_model=None, vision_model=None):
         self.input_file = Path(input_file)
         self.project_root = Path(project_root) if project_root else self.input_file.parent.parent
         self.output_dir = self.project_root / "output"
@@ -360,6 +362,15 @@ class TranslationWorkflow:
             if project_config.get(k):
                 final_meta[k] = project_config[k]
 
+        # In translated output, `author` is displayed as the translator. Keep
+        # the article author in `original_author` so the two roles cannot merge.
+        final_meta['original_author'] = resolve_article_author(
+            project_config=project_config, metadata=self.metadata_engine
+        )
+        translator = resolve_translator(project_config, self.metadata_engine)
+        final_meta['translator'] = translator
+        final_meta['author'] = translator
+
         # 1. 备份原标题为 eng_title (仅当原标题为英文时，防止二次改写导致中文存入英文位)
         orig_title = self.metadata_engine.get('title')
         if orig_title:
@@ -422,6 +433,7 @@ class TranslationWorkflow:
 
         # 清洗正文杂质
         body = deterministic_scrub(body)
+        body = sanitize_medium_markdown(body)
 
         # 移除可能残留的 YAML 代码块或独立元数据块 (以防止大模型漏出)
         body = re.sub(r'^```yaml\s*.*?\s*```', '', body, flags=re.DOTALL | re.MULTILINE | re.IGNORECASE).strip()
@@ -437,8 +449,12 @@ class TranslationWorkflow:
         assets_dir = self.project_root / "assets" / "original"
         assets_dir.mkdir(parents=True, exist_ok=True)
 
-        remote_imgs = re.findall(r'!\[.*?\]\((https?://.*?)\)', body)
+        remote_imgs = re.findall(r'!\[.*?\]\((https?://[^)]+|/[^)]+)\)', body)
         for img_url in remote_imgs:
+            resolved_url = resolve_image_url(img_url, final_meta.get('url', ''))
+            if not resolved_url:
+                continue
+            img_url = resolved_url
             print(f"    - 下载远程图片: {img_url[:60]}...")
             local_name = crawler_agent.download_image(img_url, str(assets_dir))
             if local_name:
@@ -699,7 +715,7 @@ pre {{ background: #f4f4f4; padding: 16px; overflow-x: auto; border-radius: 6px;
         except Exception as e:
             print(f"⚠️ PDF 生成失败: {e}")
 
-def run_translation_workflow(input_file, project_root=None, text_style="formal", cover_style="Federation", model_name="gemini-3-flash-preview", target_title="", reuse_translation=False, non_interactive=False):
+def run_translation_workflow(input_file, project_root=None, text_style="formal", cover_style="Federation", model_name="dashscope::glm-5.2", target_title="", reuse_translation=False, non_interactive=False):
     """Entry point for postfdry-os dispatcher."""
     wf = TranslationWorkflow(input_file, project_root=project_root, cover_style=cover_style, model_name=model_name, target_title=target_title, reuse_translation=reuse_translation, non_interactive=non_interactive)
     return wf.run(publish_pdf=True)
@@ -710,7 +726,7 @@ if __name__ == "__main__":
     parser.add_argument("--project-root", help="Project root directory")
     parser.add_argument("--cover-style", default="Federation", help="PDF Visual Template Style (e.g., Federation, Industrial Amber)")
     parser.add_argument("--info-style", default="Federation", help="Infographic visual style")
-    parser.add_argument("--model", default="gemini-3-flash-preview", help="LLM model name")
+    parser.add_argument("--model", default="dashscope::glm-5.2", help="LLM model name")
     parser.add_argument("--thoughts", default="", help="Editor thoughts (ignored in translate mode)")
     parser.add_argument("--target-title", type=str, default="", help="Target title (ignored in translate mode)")
     parser.add_argument("--image-model", type=str, default="gemini-3-pro-image-preview", help="Image model to use")

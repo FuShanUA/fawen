@@ -95,6 +95,54 @@ class MetadataEngine:
         """从正文中剥离所有已识别的元数据行。"""
         return extract_clean_body(text, keep_cover=keep_cover)
 
+
+def _get_metadata_value(source, key):
+    if source is None:
+        return ""
+    value = source.get(key, "")
+    return str(value or "").strip()
+
+
+def resolve_article_author(explicit_author="", project_config=None, metadata=None):
+    """Resolve the article author without falling back to the translator."""
+    explicit_author = str(explicit_author or "").strip()
+    if explicit_author:
+        return explicit_author
+
+    translator = (
+        _get_metadata_value(project_config, "translator")
+        or _get_metadata_value(project_config, "interpret_publisher")
+    )
+    for source in (project_config, metadata):
+        value = _get_metadata_value(source, "original_author")
+        if value:
+            return value
+
+    for source in (project_config, metadata):
+        value = _get_metadata_value(source, "author")
+        if value and value != translator:
+            return value
+
+    return "Unknown"
+
+
+def resolve_translator(project_config=None, metadata=None):
+    """Resolve the translator, without treating the article author as a translator."""
+    for source in (project_config, metadata):
+        for key in ("translator", "interpret_publisher"):
+            value = _get_metadata_value(source, key)
+            if value:
+                return value
+
+    # Compatibility with older GUI projects: `author` held the translator only
+    # when `original_author` was also persisted as the article author.
+    legacy_author = _get_metadata_value(metadata, "author")
+    original_author = _get_metadata_value(metadata, "original_author")
+    if legacy_author and original_author and legacy_author != original_author:
+        return legacy_author
+    return ""
+
+
 def load_skill_content(name):
     """Load SKILL.md for a given skill name."""
     path = os.path.join(TOOLS_DIR, name, "SKILL.md")

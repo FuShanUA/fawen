@@ -30,13 +30,15 @@ for d in [scripts_dir, agents_dir]:
         sys.path.remove(d)
     sys.path.insert(0, d)
 
-from common_utils import extract_clean_body, deterministic_scrub
+from common_utils import extract_clean_body, deterministic_scrub, resolve_article_author
 import translator_agent
 import rewriter_agent
 import lead_in_agent
 import illustrator
 import extractor
 import localizer_agent
+from image_url_utils import resolve_image_url
+from markdown_cleanup import sanitize_medium_markdown
 import yaml
 from common_utils import deterministic_scrub, load_style_guide, extract_clean_body
 
@@ -182,11 +184,10 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
         except Exception as e:
             print(f"⚠️ Failed to load trans_meta: {e}")
 
-    # Determine default author (always "数据治理研究院" as signature, no "前沿科技智库" creation)
-    default_author = "数据治理研究院"
-
-    # Resolve final author: parameter 'author' -> config 'author' -> trans_meta 'author' -> default_author
-    author = author or project_config.get('author') or (trans_meta.get('author') if trans_meta else "") or default_author
+    # The article author is never resolved from the translator/publisher.
+    author = resolve_article_author(author, project_config, trans_meta)
+    if author == "Unknown":
+        print("⚠️ 未找到文章作者，解读文章作者栏将标记为 Unknown。")
     date = datetime.now().strftime('%Y-%m-%d')
 
     # 2. Atomic Rewriting
@@ -357,7 +358,8 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
     meta_for_name = {
         'date': project_config.get('date') or (trans_meta.get('date') or trans_meta.get('publish_date') if trans_meta else None),
-        'author': project_config.get('author') or (trans_meta.get('author') if trans_meta else None),
+        'author': author,
+        'original_author': author,
         'source': project_config.get('source') or (trans_meta.get('source') if trans_meta else None),
         'title': title
     }
@@ -452,13 +454,19 @@ def run_interpret_workflow(input_file, project_root=None, text_style="formal", c
 
     # 7.2 Asset Materializer: Final check for remote images to download them to assets/original
     print(f"  STEP 7.2: Materializing all referenced images...")
+    final_content = sanitize_medium_markdown(final_content)
 
-    # Simple regex to find all images
-    all_imgs = re.findall(r'!\[.*?\]\((https?://.*?)\)', final_content)
+    # Simple regex to find all images; site-relative paths are resolved later.
+    all_imgs = re.findall(r'!\[.*?\]\((https?://[^)]+|/[^)]+)\)', final_content)
     if all_imgs:
         orig_dir = os.path.join(assets_dir, "original")
         if not os.path.exists(orig_dir): os.makedirs(orig_dir)
         for img_url in all_imgs:
+            source_url = (trans_meta.get('url') if trans_meta else '') or project_config.get('url', '')
+            resolved_url = resolve_image_url(img_url, source_url)
+            if not resolved_url:
+                continue
+            img_url = resolved_url
             print(f"    - Downloading remote image: {img_url[:60]}...")
             local_name = extractor.download_image(img_url, orig_dir)
             if local_name:

@@ -85,32 +85,78 @@ def clean_node_labels(points):
     return " / ".join(cleaned[:5])
 
 def generate_cover_prompt(points, title_cn, style_name):
-    """
-    Dynamic Cover Prompt Generator.
-    Conceives a content-relevant metaphor expressed in the requested style.
-    """
-    identity = get_style_identity(style_name)
-    labels = clean_node_labels(points)
+    """Generates a complete English prompt with an LLM-conceived metaphor."""
+    all_points = []
+    if points and len(points) >= 2:
+        for p in points[:5]:
+            all_points.append(p)
+    points_text = "; ".join(all_points[:5]) if all_points else "data architecture evolution"
 
-    label_instruction = f"，并在关键节点处以【思源黑体】标注标签‘{labels}’" if labels else ""
+    # Use LLM to conceive a metaphor
+    from llm_utils import get_client
+    client = get_client()
+    metaphor_prompt = f"""你是一位资深 B2B 工业插画师。请为以下文章构思一个具体的、有画面感的视觉隐喻。
 
-    prompt_body = (
-        f"### 任务目标\n"
-        f"请为专题文章《{title_cn}》构思并描述一个符合“{style_name}”视觉体系的封面插画。\n\n"
-        f"### 风格基石\n{identity}\n\n"
-        f"### 画面构思要求\n"
-        f"1. **核心隐喻 (Metaphor)**: 请基于文章标题及其核心要点（{labels}），构思一个契合主题的“系统性/架构性”视觉隐喻。\n"
-        f"2. **呈现形态**: 使用上述风格标准描述该隐喻。强调几何精准度与抽象艺术感的结合。\n"
-        f"3. **文字系统与排版 (Typography - HIGH PRIORITY)**:\n"
-        f"   - **主标题**: 标题‘{title_cn}’必须作为画面绝对重心，字号要【极大】（比常规大两圈），占据画面上方或中央显著位置。\n"
-        f"   - **辅助标题**: 如果标题较长，请将其拆分为“主标题”与“副标题”两行展示，增强层次感。\n"
-        f"   - **标签**: 在关键节点处以【思源黑体】标注标签‘{labels}’。\n"
-        f"   - **禁忌**: 严禁生成任何 AI 幻觉产生的虚假公司名或 Logo。\n\n"
-        f"### 输出要求\n"
-        f"请直接输出一段用于绘图的 PROMPT，描述画面构成、线条走势与细节。保持 16:9 比例。"
+要求：
+1. 隐喻必须是一个具体的物理结构或场景，不能是泛化的"结构拓扑"、"数据管道"、"分层系统"等抽象描述
+2. 隐喻要有中心焦点和层次感，不能是从左到右的线性流程
+3. 隐喻要与文章主题紧密相关，不同主题的文章应该用不同的隐喻
+4. 隐喻示例（根据文章主题选择最贴切的，不要总是用同一种）：
+   - 治理/权属/边界类：一座有城墙和城门的要塞，不同区域由不同守卫控制
+   - 演进/架构/模式类：一棵从种子长成的大树，根系深入地下、主干粗壮、树冠分支
+   - 流程/管道/数据流类：一条河流从山间溪流汇聚成大河，经过水坝调节流向不同渠道
+   - 安全/防护/风险类：一座灯塔在风暴中照射不同区域，揭示隐藏的礁石
+   - 组织/团队/协作类：一个精密钟表的内部结构，不同齿轮以不同速度旋转但彼此咬合
+   - 存储/仓库/资产类：一座多层地下金库，从地表入口逐层深入，每层有不同级别的保险柜
+   - 决策/权限/角色类：一个法庭的空间布局，法官席居中，证人席和旁听席分层环绕
+5. 请用英文描述这个隐喻的画面（3-5句话），要具体到能让人想象出画面
+6. 不要选择工业精馏塔或熔炉，除非文章内容直接涉及化工/冶炼
+
+文章标题：{title_cn}
+文章要点：{points_text}
+
+请直接输出英文的隐喻描述（3-5句话），不要任何前言或解释。"""
+
+    print(f"  [Illustrator] 构思封面隐喻...")
+    try:
+        metaphor_desc = client.generate_content(metaphor_prompt, model_name="dashscope::glm-5.2")
+        metaphor_desc = metaphor_desc.strip()
+        lines = metaphor_desc.split("\n")
+        metaphor_desc = " ".join(l.strip() for l in lines if l.strip() and not l.startswith("#"))
+        print(f"  [Illustrator] 隐喻: {metaphor_desc[:80]}...")
+    except Exception as e:
+        print(f"  [Illustrator] LLM隐喻生成失败，使用默认隐喻: {e}")
+        metaphor_desc = (
+            "a massive, vertically layered industrial oil-refinery distillation column viewed in precise isometric cutaway. "
+            "Heavy crude data enters at the base through thick dashed intake pipes, and is progressively distilled into "
+            "specialized, high-speed refined outputs at the top. The towering column is the central focal point with "
+            "layered depth, surrounded by 45% negative space."
+        )
+
+    prompt = (
+        f"A 16:9 industrial amber schematic illustration of {metaphor_desc} "
+        f"The background is a bright cream-white with an ultra-fine isometric technical grid, "
+        f"resembling professional engineering blueprint paper. "
+        f"Primary structural lines in deep amber, core pathways in rust red, "
+        f"key transition nodes in dark gold fill. Varying stroke weights convey logical hierarchy. "
+        f"The design features rich industrial components: rounded rectangle containers, "
+        f"dashed connection pathways, micro node icons, and fine data lines. "
+        f"Absolutely no 3D rendering, no sci-fi elements, no realistic illustrations. "
+        f"\n\nTypography (CRITICAL):\n"
+        f"1. Main Title: Render the following Simplified Chinese text in the TOP area of the image "
+        f"using an elegant serif typeface (Source Han Serif style), with an extremely large font size. "
+        f"The title area MUST be separated from the schematic illustration below by a clear blank zone "
+        f"of at least 15% of the image height. No lines, nodes, or graphical elements may overlap or "
+        f"touch the title text. The title sits in its own clean space: "
+        f'"{title_cn}".\n'
+        f"2. Node Labels: At key structural nodes within the diagram, render the following short "
+        f"Simplified Chinese labels using a clean, modern sans-serif typeface (Source Han Sans style): "
+        f'"数据接入", "传输处理", "架构演进", "存储解耦", "实时响应".\n'
+        f"Strictly avoid rendering any English words, English placeholder text, long sentences, "
+        f"fake company names, or logos inside the image."
     )
+    return prompt
 
-    return f"[{style_name} Cover Style] PROMPT: {prompt_body}"
 
 def generate_infographic_prompt(logic_type, summary, facts, labels, style_name):
     """
@@ -152,7 +198,7 @@ def main():
     parser.add_argument("--info-style", default="Industrial Amber", help="Style for infographics")
     parser.add_argument("--skip-info", action="store_true", help="Skip infographic generation")
     parser.add_argument("--gen-images", action="store_true", help="Generate actual images via skill CLI")
-    parser.add_argument("--model", default="gemini-3-flash-preview", help="LLM model for prompt refinement")
+    parser.add_argument("--model", default="dashscope::glm-5.2", help="LLM model for prompt refinement")
     parser.add_argument("--image-model", default="vertex", help="Image generation model/engine")
 
     args = parser.parse_args()
@@ -195,7 +241,7 @@ def main():
 
     from llm_utils import get_client
     client = get_client()
-    model_name = args.model or "gemini-3-flash-preview"
+    model_name = args.model or "dashscope::glm-5.2"
 
     # 1. Generate Cover
     log_and_print("\n" + "="*40)
@@ -249,46 +295,10 @@ def main():
 
         # Helper to generate via skill CLI
         def handle_gen_skill(prompt, target_base, model_name=model_name):
-            style_id = get_style_identity(args.cover_style)
-
-            # 1. Refine prompt via LLM to get a high-quality DALL-E/Midjourney style English prompt
-            refinement_prompt = f"""
-            You are a senior AI prompt engineer for B2B industrial design.
-
-            ### TASK:
-            Translate AND refine the following visual description into a high-quality, precise English prompt for image generation (Gemini/DALL-E).
-
-            ### CORE REQUIREMENT:
-            - **Cultural Alignment**: The metaphor must remain faithful to the original Chinese context provided in the input.
-            - **Labeling Logic & Length (CRITICAL)**:
-                - If the input contains text labels (标注标签) in the '画面设计要求' section, you MUST translate them into **Simplified Chinese (简体中文)** in the final prompt if they are currently in English.
-                - **Label Length & Noise Reduction (HIGH PRIORITY)**:
-                    - Keep structural/node text labels extremely short (typically 2-4 Simplified Chinese characters each).
-                    - If the input contains long phrases or questions (e.g. "为什么数据管道如此重要？" or "什么是..."), you MUST summarize or truncate them into short technical nouns (e.g. "技术重要性" or "五层架构" or simply "数据接入", "传输", "处理", "存储", "编排").
-                    - The prompt must explicitly instruct the AI generator to render these specific Chinese characters at the logical nodes.
-                    - Strictly avoid rendering long sentences, questions, or generic phrases inside diagram nodes or labels.
-
-            ### VISUAL IDENTITY:
-            {style_id}
-
-            ### INPUT DESCRIPTION:
-            {prompt}
-
-            ### OUTPUT REQUIREMENTS:
-            - Language: English (for the tool), but instruction for text *inside* the image MUST specify Simplified Chinese characters.
-            - Visual Style: Must strictly adhere to the 'Industrial Amber Schematic' identity (Industrial blueprint, technical grid, negative space, amber/rust color palette).
-            - Keywords: Isometric, schematic, blueprint, high-detail, technical drawing, professional, minimalist.
-            - Result: Return ONLY the refined English prompt string. No conversational filler.
-            """
-            print(f"  [Skill] Refining prompt for {target_base} [Model: {model_name}]...")
-            # Enable same-provider cascade (glm-5.2 -> qwen3.7-max -> ...) so a single
-            # model timeout doesn't kill the whole INTERPRET pipeline. If ALL models
-            # fail, fall back to the raw prompt rather than crashing.
-            try:
-                clean_en_prompt = client.generate_content(refinement_prompt, model_name=model_name, fallback=True)
-            except Exception as refine_err:
-                print(f"  ⚠️ Prompt refinement failed ({refine_err}). Using raw prompt as fallback.")
-                clean_en_prompt = prompt
+            # generate_cover_prompt now outputs a complete English prompt with LLM-conceived metaphor.
+            # No LLM refinement needed - use directly.
+            clean_en_prompt = prompt
+            print(f"  [Skill] Using direct prompt for {target_base} (no LLM refinement needed)...")
 
             # Audit logging
             from common_utils import log_prompt

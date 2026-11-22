@@ -10,8 +10,8 @@ from llm_utils import get_client
 def main():
     parser = argparse.ArgumentParser(description="LLM / Vertex Unified CLI Client")
     parser.add_argument("prompt", nargs="?", help="The prompt text to send to the model.")
-    parser.add_argument("-m", "--model", default="gemini-3.1-flash-lite-preview", 
-                        help="Model name (default: gemini-3.1-flash-lite-preview)")
+    parser.add_argument("-m", "--model", default=None,
+                        help="Model name (default: from DEFAULT_LLM_MODEL env var)")
     parser.add_argument("-p", "--provider", default=None, 
                         help="Provider override (e.g., vertex, gemini, dashscope)")
     

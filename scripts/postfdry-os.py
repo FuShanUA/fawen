@@ -44,7 +44,9 @@ from common_utils import MetadataEngine, deterministic_scrub
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
-def bootstrap_model_selection(default_model="gemini-3-flash-preview"):
+def bootstrap_model_selection(default_model=None):
+    if default_model is None:
+        default_model = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
     """Quick model selection at the very start to avoid unconfigured AI calls."""
     clear_screen()
     print("="*60)
@@ -53,7 +55,7 @@ def bootstrap_model_selection(default_model="gemini-3-flash-preview"):
     print(" 系统准备开始解析/抓取文章，请先选择要调用的智力引擎：")
     print("-" * 60)
 
-    available_models = ["gemini-3-flash-preview", "gemini-3.1-pro-preview", "gemini-2.0-flash-exp"]
+    available_models = ["dashscope::glm-5.2", "gemini-3.1-pro-preview", "gemini-2.0-flash-exp"]
 
     for i, m in enumerate(available_models, 1):
         label = f" [{i}] {m}"
@@ -308,7 +310,9 @@ class ProjectManager:
         source_file = os.path.join(self.source_dir, "source.md")
         return self.project_root, source_file
 
-    def materialize_source(self, model_name="gemini-3-flash-preview"):
+    def materialize_source(self, model_name=None):
+        if model_name is None:
+            model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
         """Performs the actual crawling and AI refinement."""
         source_file = os.path.join(self.source_dir, "source.md")
         is_html = self.input_path.lower().endswith('.html') or self.input_path.lower().endswith('.htm')
@@ -334,7 +338,7 @@ class ProjectManager:
                     try: os.remove(source_file)
                     except: pass
                 print(f"🚀 正在抓取并利用 AI 优化原文内容...")
-                crawler_agent.run(self.input_path, output_file=source_file, model_name=model_name)
+                crawler_agent.run(self.input_path, output_file=source_file, model_name=model_name, skip_refine=True)
         else:
             if os.path.abspath(self.input_path) != os.path.abspath(source_file) and not os.path.isdir(self.input_path):
                 print(f"📂 正在同步本地文件到项目目录...")
@@ -376,7 +380,9 @@ class ProjectManager:
         return None
 
 class OnboardingAssistant:
-    def __init__(self, source_file, model_name="gemini-3-flash-preview", narrative_theme=None):
+    def __init__(self, source_file, model_name=None, narrative_theme=None):
+        if model_name is None:
+            model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
         self.source_file = source_file
         self.model_name = model_name
         self.narrative_theme = narrative_theme
@@ -490,6 +496,8 @@ def metadata_onboarding(source_file, recommendation=None):
     new_yaml = {
         'title': chn_title or eng_title,
         'eng_title': eng_title,
+        'original_author': author,
+        'original_path': '',
         'author': author,
         'date': date,
         'source': source,
@@ -504,7 +512,9 @@ def metadata_onboarding(source_file, recommendation=None):
     print(" ✅ 元数据已确认。")
     return new_yaml
 
-def pre_flight_check(input_file, recommendation=None, current_model="gemini-3-flash-preview"):
+def pre_flight_check(input_file, recommendation=None, current_model=None):
+    if current_model is None:
+        current_model = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
     """Interactive CLI to configure the run."""
     clear_screen()
     print("="*60)
@@ -759,6 +769,7 @@ if __name__ == "__main__":
     parser.add_argument("--target-title", help="Forced target title override")
     parser.add_argument("--catchy-title", help="Forced catchy title override for interpretation")
     parser.add_argument("--author", default="", help="Author signature override")
+    parser.add_argument("--translator", default="", help="Translator/publisher override")
     parser.add_argument("--internal-run", action="store_true", help=argparse.SUPPRESS)
 
     args = parser.parse_args()
@@ -786,7 +797,7 @@ if __name__ == "__main__":
     if not selected_model and not args.non_interactive:
         selected_model = bootstrap_model_selection()
     else:
-        selected_model = selected_model or "gemini-3-flash-preview"
+        selected_model = selected_model or "dashscope::glm-5.2"
 
     # 2. Identify Project (Minimal Sniffing)
     pm = ProjectManager(args.input)
@@ -857,7 +868,8 @@ if __name__ == "__main__":
         narrative_theme = history.get('narrative_theme', "")
         if narrative_theme == "无特定主题":
             narrative_theme = ""
-        author = args.author or history.get('author') or ""
+        author = args.author or history.get('original_author') or history.get('author') or ""
+        translator = args.translator or history.get('translator') or history.get('interpret_publisher') or ""
     elif args.non_interactive:
         # Always materialize in non-interactive cold start
         materialized_source = pm.materialize_source(model_name=selected_model)
@@ -871,7 +883,7 @@ if __name__ == "__main__":
         thoughts = args.thoughts or ""
         gen_images = args.gen_images
         pdf_gen = args.pdf if args.pdf is not None else (mode != "interpret")
-        final_model = args.model or "gemini-3-flash-preview"
+        final_model = args.model or os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
         image_model = args.image_model or "vertex"
         vision_model = args.vision_model
         std_title = args.target_title or ""
@@ -891,6 +903,7 @@ if __name__ == "__main__":
         if narrative_theme == "无特定主题":
             narrative_theme = ""
         author = args.author or ""
+        translator = args.translator or ""
 
         # Rename project directory based on target title if available
         target_title = std_title or cat_title
@@ -928,7 +941,20 @@ if __name__ == "__main__":
         if target_title:
             project_root, source_file = pm.rename_project_if_needed(target_title)
             materialized_source = source_file
-        author = args.author or (history.get('author') if history else "") or ""
+        author = args.author or (history.get('original_author') or history.get('author') if history else "") or ""
+        translator = args.translator or ""
+
+    # Keep article author and translator separate in persisted project config.
+    if materialized_source and os.path.exists(materialized_source):
+        try:
+            with open(materialized_source, 'r', encoding='utf-8') as f:
+                source_meta = MetadataEngine(f.read())
+            if not author:
+                author = source_meta.get('original_author') or source_meta.get('author') or ""
+            if not translator:
+                translator = source_meta.get('translator') or ""
+        except Exception:
+            pass
 
     # 2.9 Signal: Visual Localization Decision
     force_relocalize = args.force_relocalize
@@ -964,6 +990,9 @@ if __name__ == "__main__":
         'summary_prompt': summary_prompt,
         'gen_summary': summary_mode != "none",
         'author': author,
+        'original_author': author,
+        'translator': translator,
+        'interpret_publisher': translator,
         'narrative_theme': narrative_theme,
         'last_run': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })

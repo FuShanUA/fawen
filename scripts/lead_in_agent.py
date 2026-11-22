@@ -80,7 +80,7 @@ def build_lead_in_prompt(full_text, thoughts="", type_selection="trend", narrati
 """
     return prompt
 
-def generate_lead_in(text, thoughts="", project_root=None, model_name="gemini-3-flash-preview", type_selection="trend", narrative_theme="", author=""):
+def generate_lead_in(text, thoughts="", project_root=None, model_name=None, type_selection="trend", narrative_theme="", author=""):
     """Generates the lead-in via LLM."""
     # If text is too long for the model, we can truncate a bit,
     # but Gemini 1.5 Pro/3.1 Pro has large window.

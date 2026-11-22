@@ -235,7 +235,7 @@ class LLMClient:
         self._vertex_configured = False
         self._vertex_current_location = None
 
-    def generate_content_with_provider(self, prompt: str, provider: LLMProvider, model_name: str = "gemini-3.1-flash-preview", fallback: bool = True) -> tuple[bool, str]:
+    def generate_content_with_provider(self, prompt: str, provider: LLMProvider, model_name: str = "dashscope::glm-5.2", fallback: bool = True) -> tuple[bool, str]:
         """Generate content using specific provider and model. Returns (success, content/error)."""
         errors = []
         try:
@@ -519,6 +519,8 @@ class LLMClient:
         return None
 
     def generate_content(self, content: Union[str, List], model_name: Optional[str] = None, fallback: bool = False, provider: Optional[LLMProvider] = None) -> Optional[str]:
+        if not model_name:
+            model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
         if model_name and "::" in model_name:
             vendor_str, model_name = model_name.split("::", 1)
             if not provider:
@@ -641,7 +643,9 @@ class LLMClient:
 
         raise Exception(f"❌ All LLM API fallbacks exhausted. Errors: {errors}")
 
-    def generate_batch(self, tasks: List[Dict], model_name: str = "gemini-3.1-flash-preview", fallback: bool = False) -> List[Dict]:
+    def generate_batch(self, tasks: List[Dict], model_name: str = "", fallback: bool = False) -> List[Dict]:
+        if not model_name:
+            model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
         results = []
         total = len(tasks)
         print(f"🚀 Starting batch generation for {total} items (Workers: {self.max_workers}, Model: {model_name}, Fallback: {fallback})...")

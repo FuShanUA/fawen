@@ -111,6 +111,13 @@ class PostOSGUI:
             "Replicate": ["black-forest-labs/flux-1.1-pro", "black-forest-labs/flux-dev", "black-forest-labs/flux-schnell", "tencent/hunyuan-image-3"],
             "纯代码渲染 (Inpaint)": ["inpaint"]
         }
+        self.image_llm_provider_ids = {
+            "Google AI Studio": "gemini",
+            "Google Vertex AI": "vertex",
+            "OpenAI": "openai",
+            "Alibaba (Bailian)": "dashscope",
+            "MiniMax": "minimax"
+        }
 
         # Vision (VLM) Vendor Models - for image reading in localization
         self.vision_vendor_map = {
@@ -129,12 +136,21 @@ class PostOSGUI:
             "Zhipu (GLM)": ["glm-4v-plus", "glm-4v"],
             "Moonshot (Kimi)": ["moonshot-v1-8k-vision", "moonshot-v1-32k-vision"]
         }
+        self.vision_llm_provider_ids = {
+            "Alibaba (Bailian)": "dashscope",
+            "Google Gemini": "gemini",
+            "Google Vertex AI": "vertex",
+            "OpenAI": "openai",
+            "Zhipu (GLM)": "zhipu",
+            "Moonshot (Kimi)": "moonshot"
+        }
 
         # Load Settings
         self.settings_file = os.path.join(POSTFDRY_ROOT, "wip", "gui_settings.json")
         self.settings = self.load_settings()
         self.vendor_default_models = self.settings.get("vendor_default_models", {})
         self.image_vendor_default_models = self.settings.get("image_vendor_default_models", {})
+        self.vision_vendor_default_models = self.settings.get("vision_vendor_default_models", {})
 
         # Image Vendor Env Keys Mapping
         self.image_vendor_env_keys = {
@@ -218,6 +234,7 @@ class PostOSGUI:
         # Initial async load of models
         self.root.after(500, lambda: self.on_vendor_change(None))
         self.root.after(500, lambda: self.on_image_vendor_change(None))
+        self.root.after(500, lambda: self.on_vision_vendor_change(None))
         self.root.after(600, lambda: self.update_key_editor(self.key_editor_vendor, self.key_editor_env_key))
 
     def set_macos_dock_icon(self):
@@ -282,7 +299,7 @@ class PostOSGUI:
             "input": "",
             "mode": "translate",
             "llm_vendor": "Google Vertex AI",
-            "model": "gemini-3-flash-preview",
+            "model": os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2"),
             "text_style": "formal",
             "cover_style": "Industrial Amber",
             "pdf_template": "Federation",
@@ -308,6 +325,7 @@ class PostOSGUI:
             "wechat_account_alias": "default",
             "vendor_default_models": {},
             "image_vendor_default_models": {},
+            "vision_vendor_default_models": {},
             "interpret_publisher": "AI数据治理研究院"
         }
         if os.path.exists(self.settings_file):
@@ -355,6 +373,7 @@ class PostOSGUI:
             "wechat_account_alias": self.get_selected_wechat_alias(),
             "vendor_default_models": self.vendor_default_models,
             "image_vendor_default_models": self.image_vendor_default_models,
+            "vision_vendor_default_models": self.vision_vendor_default_models,
             "interpret_publisher": self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
         }
         
@@ -564,8 +583,8 @@ class PostOSGUI:
         self.summary_mode_combo.grid(row=4, column=1, sticky="w", padx=5)
         self.summary_mode_combo.bind("<<ComboboxSelected>>", self.on_summary_mode_change)
 
-        # 6. 发布单位（解读文章的编辑机构，用于生成解读文章作者栏和公众号作者栏）
-        ttk.Label(f_interpret_left, text="发布单位:").grid(row=5, column=0, sticky="w", pady=2)
+        # 6. 译者/发布单位（只作为译者和公众号发布主体，不作为文章作者）
+        ttk.Label(f_interpret_left, text="译者/发布单位:").grid(row=5, column=0, sticky="w", pady=2)
         self.interpret_publisher_var = tk.StringVar(value=self.settings.get("interpret_publisher", "AI数据治理研究院"))
         ttk.Entry(f_interpret_left, textvariable=self.interpret_publisher_var, width=14).grid(row=5, column=1, sticky="w", padx=5)
 
@@ -625,7 +644,7 @@ class PostOSGUI:
         self.vendor_combo.bind("<<ComboboxSelected>>", self.on_vendor_change)
 
         ttk.Label(f_llm, text="选择模型:").grid(row=0, column=2, sticky="w", padx=10)
-        self.model_var = tk.StringVar(value=self.settings.get("model", "gemini-3.1-flash-preview"))
+        self.model_var = tk.StringVar(value=self.settings.get("model", os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")))
         self.model_combo = ttk.Combobox(f_llm, textvariable=self.model_var, width=22)
         self.model_combo.grid(row=0, column=3, sticky="w", padx=5)
         self.btn_set_text_default = ttk.Button(f_llm, text="设为默认", command=self.set_text_model_default)
@@ -648,6 +667,8 @@ class PostOSGUI:
         initial_vision_models = self.vision_vendor_models.get(saved_vision_vendor, ["qwen-vl-max"])
         self.vision_model_combo = ttk.Combobox(f_vision, textvariable=self.vision_model_var, values=initial_vision_models, width=22, state="readonly")
         self.vision_model_combo.grid(row=0, column=3, sticky="w", padx=5)
+        self.btn_set_vision_default = ttk.Button(f_vision, text="设为默认", command=self.set_vision_model_default)
+        self.btn_set_vision_default.grid(row=0, column=4, sticky="w", padx=5)
 
         # Strategy hint label (updated dynamically based on image model selection)
         self.vision_hint_var = tk.StringVar(value="")
@@ -1198,12 +1219,14 @@ class PostOSGUI:
             existing_date = meta_eng.get('date') or meta_eng.get('publish_date') or ''
             final_date = gui_date or existing_date
 
-            interpret_pub = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
+            article_author = self.author_var.get().strip()
+            translator = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
             new_yaml = {
                 'title': self.std_title_var.get().strip(),
                 'eng_title': self.eng_title_var.get().strip(),
-                'author': interpret_pub,
-                'original_author': self.author_var.get().strip(),
+                'author': article_author,
+                'original_author': article_author,
+                'translator': translator,
                 'date': final_date,
                 'source': self.source_var.get().strip(),
                 'url': meta_eng.get('url') or '',
@@ -1242,15 +1265,16 @@ class PostOSGUI:
             config_data['standard_title_history'] = self.standard_title_history
 
         config_data['eng_title'] = self.eng_title_var.get().strip()
-        interpret_pub = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
-        config_data['author'] = interpret_pub
-        config_data['original_author'] = self.author_var.get().strip()
+        article_author = self.author_var.get().strip()
+        translator = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
+        config_data['author'] = article_author
+        config_data['original_author'] = article_author
+        config_data['translator'] = translator
         config_data['source'] = self.source_var.get().strip()
         config_data['date'] = self.date_var.get().strip()
-        # 解读专属发布单位：区别于原文作者/机构
-        interpret_pub = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
-        if interpret_pub:
-            config_data['interpret_publisher'] = interpret_pub
+        # 解读专属发布单位：区别于文章作者
+        if translator:
+            config_data['interpret_publisher'] = translator
         target = self.input_var.get().strip()
         if target and not target.startswith(('http://', 'https://')):
             config_data['original_path'] = os.path.abspath(target)
@@ -1362,7 +1386,7 @@ class PostOSGUI:
                             with open(source_md_path, 'r', encoding='utf-8') as sf:
                                 smeta = MetadataEngine(sf.read())
                             eng_title = smeta.get('eng_title') or smeta.get('title') or ""
-                            author = smeta.get('author') or ""
+                            author = smeta.get('original_author') or smeta.get('author') or ""
                             source = smeta.get('source') or ""
                             date_val = smeta.get('date') or smeta.get('publish_date') or ""
                             if not std_title:
@@ -1371,7 +1395,11 @@ class PostOSGUI:
 
                     # Fall back to cfg values if above are still empty
                     if not eng_title: eng_title = cfg.get('eng_title', '')
-                    if not author: author = cfg.get('author', 'AI数据治理研究院')
+                    if not author:
+                        cfg_author = cfg.get('original_author') or cfg.get('author', '')
+                        cfg_translator = cfg.get('translator') or cfg.get('interpret_publisher', '')
+                        if cfg_author and cfg_author != cfg_translator:
+                            author = cfg_author
                     if not source: source = cfg.get('source', 'Unknown')
 
                     self.eng_title_var.set(eng_title)
@@ -1732,7 +1760,7 @@ class PostOSGUI:
             
             vendor = self.vendor_var.get()
             v_id_str = self.vendor_map.get(vendor, "gemini")
-            model = self.model_var.get() or "gemini-3-flash-preview"
+            model = self.model_var.get() or os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
             model_name = f"{v_id_str}::{model}"
             
             prompt = f"""
@@ -1930,14 +1958,14 @@ class PostOSGUI:
         else:
             cmd.append("--no-pdf")
         
-        # 解读模式用"发布单位"作为作者；译介/两者模式用全局"发布作者"
-        mode_val_for_author = self.task_mode_map.get(self.mode_var.get(), "both")
-        if mode_val_for_author == "interpret" and hasattr(self, 'interpret_publisher_var'):
-            gui_author = self.interpret_publisher_var.get().strip() or self.wechat_author_var.get().strip()
-        else:
-            gui_author = self.wechat_author_var.get().strip()
+        # `author` is the article author from the metadata tab. The publisher
+        # remains a separate translator field and is never used as the author.
+        gui_author = self.author_var.get().strip()
         if gui_author:
             cmd.extend(["--author", gui_author])
+        gui_translator = self.interpret_publisher_var.get().strip() if hasattr(self, 'interpret_publisher_var') else ""
+        if gui_translator:
+            cmd.extend(["--translator", gui_translator])
 
         print(f"🚀 [GUI] Running: {' '.join(cmd)}")
         threading.Thread(target=self.run_worker_thread, args=(cmd,), daemon=True).start()
@@ -2090,6 +2118,234 @@ class PostOSGUI:
            self.update_key_editor(v_name, env_key)
 
         self._update_vision_model_state()
+        threading.Thread(target=self.fetch_image_models_async, args=(v_name,), daemon=True).start()
+
+    def _get_llm_provider(self, vendor, provider_ids):
+        provider_id = provider_ids.get(vendor)
+        if not provider_id:
+            return None, None
+        try:
+            from llm_utils import LLMProvider, LLMClient
+            return LLMProvider(provider_id), LLMClient()
+        except Exception:
+            return None, None
+
+    def _fetch_dashscope_models(self, client):
+        import requests
+        from llm_utils import LLMProvider
+
+        api_key = client.api_keys.get(LLMProvider.DASHSCOPE)
+        if not api_key:
+            return []
+
+        models = []
+        page_no = 1
+        while True:
+            response = requests.get(
+                "https://dashscope.aliyuncs.com/api/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                params={"page_size": 100, "page_no": page_no},
+                timeout=15
+            )
+            response.raise_for_status()
+            output = response.json().get("output", {})
+            page_models = output.get("models", [])
+            models.extend(page_models)
+            total = int(output.get("total", len(models)))
+            if not page_models or len(models) >= total or page_no >= 20:
+                break
+            page_no += 1
+
+        unique = {}
+        for model in models:
+            model_id = model.get("model")
+            if model_id:
+                unique[model_id] = model
+        return list(unique.values())
+
+    def _filter_dashscope_image_models(self, models):
+        result = []
+        for model in models:
+            metadata = model.get("inference_metadata") or {}
+            response_modalities = metadata.get("response_modality") or []
+            capabilities = model.get("capabilities") or []
+            model_id = (model.get("model") or "").lower()
+            if ("Image" in response_modalities or "IG" in capabilities) and "segmentation" not in model_id:
+                result.append(model.get("model"))
+        return result
+
+    def _filter_dashscope_vision_models(self, models):
+        result = []
+        for model in models:
+            metadata = model.get("inference_metadata") or {}
+            request_modalities = metadata.get("request_modality") or []
+            response_modalities = metadata.get("response_modality") or []
+            capabilities = model.get("capabilities") or []
+            model_id = (model.get("model") or "").lower()
+            excluded = any(token in model_id for token in (
+                "embedding", "rerank", "ocr", "realtime", "livetranslate", "image"
+            ))
+            if excluded:
+                continue
+            if ("Image" in request_modalities and "Text" in response_modalities) or "VU" in capabilities:
+                result.append(model.get("model"))
+        return result
+
+    def _fetch_openai_image_models(self, client, provider):
+        import requests
+
+        api_key = client.api_keys.get(provider)
+        if not api_key:
+            return []
+        response = requests.get(
+            "https://api.openai.com/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15
+        )
+        response.raise_for_status()
+        models = []
+        for model in response.json().get("data", []):
+            model_id = model.get("id", "")
+            low_id = model_id.lower()
+            if "image" in low_id or "dall-e" in low_id:
+                models.append(model_id)
+        return models
+
+    def _fetch_openrouter_image_models(self):
+        import requests
+
+        headers = {}
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        response = requests.get(
+            "https://openrouter.ai/api/v1/models",
+            headers=headers,
+            timeout=20
+        )
+        response.raise_for_status()
+        models = []
+        for model in response.json().get("data", []):
+            architecture = model.get("architecture") or {}
+            output_modalities = architecture.get("output_modalities") or []
+            if "image" in output_modalities:
+                models.append(model.get("id"))
+        return [model for model in models if model]
+
+    def _filter_image_models(self, models, provider_id):
+        result = []
+        for model in models:
+            low_id = model.lower()
+            if provider_id in ("gemini", "vertex"):
+                is_image = "image" in low_id or "imagen" in low_id
+            elif provider_id == "openai":
+                is_image = "image" in low_id or "dall-e" in low_id
+            elif provider_id == "dashscope":
+                is_image = "image" in low_id or "t2i" in low_id or "seedream" in low_id
+            elif provider_id == "minimax":
+                is_image = "image" in low_id
+            else:
+                is_image = False
+            if is_image:
+                result.append(model)
+        return result
+
+    def _filter_vision_models(self, models, provider_id):
+        result = []
+        for model in models:
+            low_id = model.lower()
+            if provider_id in ("gemini", "vertex"):
+                is_vision = low_id.startswith("gemini")
+            elif provider_id == "openai":
+                is_vision = any(prefix in low_id for prefix in ("gpt-4o", "gpt-4.1", "gpt-5"))
+            elif provider_id == "dashscope":
+                is_vision = "vl" in low_id or "vision" in low_id or "omni" in low_id
+            elif provider_id == "zhipu":
+                is_vision = "glm-" in low_id and ("-v" in low_id or "vl" in low_id)
+            elif provider_id == "moonshot":
+                is_vision = "vision" in low_id or "vl" in low_id or "kimi" in low_id
+            else:
+                is_vision = False
+            if is_vision:
+                result.append(model)
+        return result
+
+    def _fetch_image_models(self, vendor):
+        if vendor == "纯代码渲染 (Inpaint)":
+            return ["inpaint"]
+        if vendor == "OpenRouter":
+            return self._fetch_openrouter_image_models()
+
+        provider, client = self._get_llm_provider(vendor, self.image_llm_provider_ids)
+        if provider is None:
+            return []
+        provider_id = provider.value
+
+        if provider_id == "dashscope":
+            return self._filter_dashscope_image_models(self._fetch_dashscope_models(client))
+        if vendor == "OpenAI":
+            return self._fetch_openai_image_models(client, provider)
+
+        models = client.list_models_by_provider(provider)
+        return self._filter_image_models(models, provider_id)
+
+    def _fetch_vision_models(self, vendor):
+        provider, client = self._get_llm_provider(vendor, self.vision_llm_provider_ids)
+        if provider is None:
+            return []
+        provider_id = provider.value
+
+        if provider_id == "dashscope":
+            return self._filter_dashscope_vision_models(self._fetch_dashscope_models(client))
+
+        models = client.list_models_by_provider(provider)
+        return self._filter_vision_models(models, provider_id)
+
+    def fetch_image_models_async(self, v_name):
+        def show_loading():
+            self.image_model_combo.config(values=["正在获取模型列表..."])
+            self.image_model_var.set("正在获取...")
+
+        self.root.after(0, show_loading)
+        try:
+            models = self._fetch_image_models(v_name)
+
+            def apply_models():
+                if self.image_vendor_var.get() != v_name:
+                    return
+                available_models = list(models)
+                if not available_models:
+                    available_models = self.image_vendor_models.get(v_name, [])
+                    if available_models:
+                        self.log(f"⚠️ 生图厂商 {v_name} 未返回可用模型，已保留本地备用列表")
+                if not available_models:
+                    self.image_model_combo.config(values=["未发现可用模型"])
+                    self.image_model_var.set("无模型")
+                    return
+
+                self.image_model_combo.config(values=available_models)
+                default_model = self.image_vendor_default_models.get(v_name)
+                if default_model and default_model in available_models:
+                    self.image_model_var.set(default_model)
+                elif self.image_model_var.get() not in available_models:
+                    self.image_model_var.set(available_models[0])
+                self._update_vision_model_state()
+
+            self.root.after(0, apply_models)
+        except Exception as e:
+            err_msg = f"获取生图模型失败 ({v_name}): {e}"
+
+            def show_error():
+                if self.image_vendor_var.get() != v_name:
+                    return
+                fallback = self.image_vendor_models.get(v_name, ["gemini-3-pro-image-preview"])
+                self.image_model_combo.config(values=fallback)
+                if self.image_model_var.get() not in fallback:
+                    self.image_model_var.set(fallback[0])
+                self.log(f"⚠️ {err_msg}，已保留本地备用列表")
+                self._update_vision_model_state()
+
+            self.root.after(0, show_error)
 
     def _update_vision_model_state(self):
         """Enable/disable vision model section based on mode + image model strategy.
@@ -2124,11 +2380,59 @@ class PostOSGUI:
         v_name = self.vision_vendor_var.get()
         models = self.vision_vendor_models.get(v_name, ["qwen-vl-max"])
         self.vision_model_combo.config(values=models)
-        if self.vision_model_var.get() not in models:
+        default_model = self.vision_vendor_default_models.get(v_name)
+        if default_model and default_model in models:
+            self.vision_model_var.set(default_model)
+        elif self.vision_model_var.get() not in models:
             self.vision_model_var.set(models[0])
         env_key = self.vendor_env_keys.get(v_name)
         if env_key:
             self.update_key_editor(v_name, env_key)
+        threading.Thread(target=self.fetch_vision_models_async, args=(v_name,), daemon=True).start()
+
+    def fetch_vision_models_async(self, v_name):
+        def show_loading():
+            self.vision_model_combo.config(values=["正在获取模型列表..."])
+            self.vision_model_var.set("正在获取...")
+
+        self.root.after(0, show_loading)
+        try:
+            models = self._fetch_vision_models(v_name)
+
+            def apply_models():
+                if self.vision_vendor_var.get() != v_name:
+                    return
+                available_models = list(models)
+                if not available_models:
+                    available_models = self.vision_vendor_models.get(v_name, [])
+                    if available_models:
+                        self.log(f"⚠️ 读图厂商 {v_name} 未返回可用模型，已保留本地备用列表")
+                if not available_models:
+                    self.vision_model_combo.config(values=["未发现可用模型"])
+                    self.vision_model_var.set("无模型")
+                    return
+
+                self.vision_model_combo.config(values=available_models)
+                default_model = self.vision_vendor_default_models.get(v_name)
+                if default_model and default_model in available_models:
+                    self.vision_model_var.set(default_model)
+                elif self.vision_model_var.get() not in available_models:
+                    self.vision_model_var.set(available_models[0])
+
+            self.root.after(0, apply_models)
+        except Exception as e:
+            err_msg = f"获取读图模型失败 ({v_name}): {e}"
+
+            def show_error():
+                if self.vision_vendor_var.get() != v_name:
+                    return
+                fallback = self.vision_vendor_models.get(v_name, ["qwen-vl-max"])
+                self.vision_model_combo.config(values=fallback)
+                if self.vision_model_var.get() not in fallback:
+                    self.vision_model_var.set(fallback[0])
+                self.log(f"⚠️ {err_msg}，已保留本地备用列表")
+
+            self.root.after(0, show_error)
 
     def on_vendor_change(self, event):
         v_name = self.vendor_var.get()
@@ -2307,7 +2611,11 @@ class PostOSGUI:
             self.log("📤 [WeChat] 正在启动微信公众号同步流程...")
             
             theme = self.wechat_theme_var.get() or "modern"
-            author = self.wechat_author_var.get().strip() or self.author_var.get().strip() or "AI数据治理研究院"
+            author = (
+                self.interpret_publisher_var.get().strip()
+                if hasattr(self, 'interpret_publisher_var')
+                else ""
+            ) or self.wechat_author_var.get().strip() or "AI数据治理研究院"
             alias = self.get_selected_wechat_alias()
             
             cover_path = ""
@@ -2509,6 +2817,16 @@ class PostOSGUI:
         self.image_vendor_default_models[vendor] = model
         self.save_settings()
         messagebox.showinfo("成功", f"已将 {model} 设为 {vendor} 的默认生图模型")
+
+    def set_vision_model_default(self):
+        vendor = self.vision_vendor_var.get()
+        model = self.vision_model_var.get()
+        if not model:
+            messagebox.showerror("错误", "请先选择一个有效的读图模型")
+            return
+        self.vision_vendor_default_models[vendor] = model
+        self.save_settings()
+        messagebox.showinfo("成功", f"已将 {model} 设为 {vendor} 的默认读图模型")
 
     def test_connectivity(self):
         vendor = self.vendor_var.get()

@@ -96,7 +96,7 @@ def build_rewriting_prompt(source_text, thoughts="", type_selection="trend", sty
         ending_instruction = """### ENDING (Flexible Ending)
 【绝对不要】在文章末尾添加任何总结、结尾陈述、升华段落或总结标题。文章重构到正文核心内容结束即可，不要进行任何机械的“板块化”总结或收尾，直接自然结束。"""
 
-    institute_name = author if author else "数据治理研究院"
+    article_author = author if author else "Unknown"
 
     if has_theme:
         narrative_section = f"""### NARRATIVE THEME (叙事对齐主题)
@@ -144,7 +144,8 @@ def build_rewriting_prompt(source_text, thoughts="", type_selection="trend", sty
 4. **Layout 规范**：
   - {title_instruction}
   - {title_quality_hint}
- - 标题下方紧跟一行 `- 作者：{institute_name}`.
+ - 标题下方紧跟一行 `- 作者：{article_author}`.
+ - 作者栏只填上述文章作者；严禁填入译者、发布单位、研究院名或自行编造作者。
 - 严禁输出 any YAML Frontmatter.
  - **正文结构 (CRITICAL)**：正文必须使用 H2（`##`）小标题划分逻辑段落，每 2-4 段归入一个小标题之下。小标题应当提炼该段的核心判断或结论，而非泛泛的类别词（如"背景介绍"、"总结"）。禁止出现连续超过 4 段没有小标题分隔的"文字墙"。如果某个逻辑层次下有子要点，使用 H3（`###`）进一步组织。
 5. **解读深度与改写规范 (CRITICAL)**：

@@ -535,7 +535,7 @@ def _localize_inpaint_render(image_path, target_path, client, vision_model, text
 
 def run_single_localization(image_path, target_dir, strategy="regenerate",
                             vision_model="qwen-vl-max", image_model=None,
-                            image_vendor=None, text_model="gemini-3.1-pro-preview",
+                            image_vendor=None, text_model=None,
                             force=False, client=None):
     """Localize a single image. Returns target_path or None."""
     if client is None:
@@ -570,7 +570,7 @@ def run_single_localization(image_path, target_dir, strategy="regenerate",
         return None
 
 
-def run_batch_localization(project_root, model_name="gemini-3.1-pro-preview", force=False,
+def run_batch_localization(project_root, model_name=None, force=False,
                            vision_model="qwen-vl-max", image_model=None,
                            image_vendor=None, max_workers=4, progress_callback=None):
     """Scan assets/original and localize everything in parallel.
@@ -685,7 +685,7 @@ def run_batch_localization(project_root, model_name="gemini-3.1-pro-preview", fo
 
 def run_standalone_localization(image_paths, output_dir,
                                 vision_model="qwen-vl-max", image_model=None,
-                                image_vendor=None, text_model="gemini-3.1-pro-preview",
+                                image_vendor=None, text_model=None,
                                 max_workers=4, progress_callback=None, force=True):
     """Localize standalone image(s) - single or batch. Always creates new versions."""
     strategy = _detect_strategy(image_model, image_vendor) if (image_model or image_vendor) else "inpaint_render"
@@ -742,7 +742,9 @@ def run_standalone_localization(image_paths, output_dir,
 
 
 # Backward-compatible alias
-def run_isomorphic_localization(image_path, project_root, model_name="gemini-3.1-pro-preview"):
+def run_isomorphic_localization(image_path, project_root, model_name=None):
+    if model_name is None:
+        import os; model_name = os.environ.get("DEFAULT_LLM_MODEL", "dashscope::glm-5.2")
     """Legacy entry point - delegates to run_single_localization with isomorphic strategy."""
     localized_dir = os.path.join(project_root, "assets", "localized")
     return run_single_localization(
@@ -754,7 +756,7 @@ def run_isomorphic_localization(image_path, project_root, model_name="gemini-3.1
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", required=True)
-    parser.add_argument("--model", default="gemini-3.1-pro-preview", help="Text model for audit/translate")
+    parser.add_argument("--model", default=None, help="Text model for audit/translate")
     parser.add_argument("--vision-model", default="qwen-vl-max", help="VLM for image reading (non-Gemini)")
     parser.add_argument("--image-model", default=None, help="Image generation model")
     parser.add_argument("--image-vendor", default=None, help="Image provider id (dashscope, seedream, etc.)")

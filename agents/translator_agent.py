@@ -104,7 +104,7 @@ def build_translation_prompt(source_text, style="formal", unslop_domain=""):
 """
     return prompt
 
-def validate_content(chunk, model_name="gemini-3-flash-preview"):
+def validate_content(chunk, model_name="dashscope::glm-5.2"):
     """
     Secondary Judgment: Determines if this chunk is core article content or boilerplate.
     Returns: True if core content (KEEP), False if boilerplate (SKIP).
@@ -126,7 +126,7 @@ def validate_content(chunk, model_name="gemini-3-flash-preview"):
     res = client.generate_content(prompt, model_name=model_name).strip()
     return "[SKIP]" not in res
 
-def translate_string(s, force_chinese=False, model_name="gemini-3-flash-preview"):
+def translate_string(s, force_chinese=False, model_name="dashscope::glm-5.2"):
     """单独翻译一个短字符串（如标题）。"""
     from llm_utils import get_client
     s = s.strip()
@@ -204,7 +204,7 @@ def python_chunk_markdown(input_file, output_dir, max_words=800):
         with open(chunk_file, 'w', encoding='utf-8') as f:
             f.write(chunk)
 
-def run_atomic_translation(input_file, style="formal", unslop_domain="B2B", project_root=None, model_name="gemini-3-flash-preview"):
+def run_atomic_translation(input_file, style="formal", unslop_domain="B2B", project_root=None, model_name="dashscope::glm-5.2"):
     """Coordinates chunking and parallel translation of the input file."""
     with open(input_file, 'r', encoding='utf-8') as f:
         source_text = f.read()
@@ -267,6 +267,17 @@ def run_atomic_translation(input_file, style="formal", unslop_domain="B2B", proj
     else:
         header = ""
         body = source_text
+
+    # Protect image tags from LLM dropping them during translation
+    _img_placeholders = {}
+    def _replace_img(match):
+        idx = len(_img_placeholders)
+        placeholder = f"[[IMG_PLACEHOLDER_{idx}]]"
+        _img_placeholders[placeholder] = match.group(0)
+        return placeholder
+    body = re.sub(r'!\[.*?\]\([^)]+\)', _replace_img, body)
+    if _img_placeholders:
+        print(f"  [Skill] Protected {len(_img_placeholders)} image tags from translation loss.")
 
     # Threshold for chunking: 2000 words (User prefers larger context for coherence)
     if len(body) > 2000:
@@ -367,6 +378,12 @@ def run_atomic_translation(input_file, style="formal", unslop_domain="B2B", proj
 
     # Final mechanical scrubbing
     final_text = deterministic_scrub(final_text)
+
+    # Restore image placeholders
+    for placeholder, original_tag in _img_placeholders.items():
+        final_text = final_text.replace(placeholder, original_tag)
+    if _img_placeholders:
+        print(f"  [Skill] Restored {len(_img_placeholders)} image tags.")
 
     # Output file name
     output_file = input_file.replace(".md", f"_translated.md")

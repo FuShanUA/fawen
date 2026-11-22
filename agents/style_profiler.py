@@ -108,7 +108,7 @@ def extract_style_from_samples(sample_dir):
 
     client = get_client()
     print("🚀 Sending multi-format style analysis task to LLM...")
-    profile_content = client.generate_content(prompt, model_name="gemini-3.1-pro-preview")
+    profile_content = client.generate_content(prompt, model_name=None)
 
     # Save to config/styles/user_style.md
     output_dir = os.path.join(os.path.dirname(__file__), '..', 'config', 'styles')

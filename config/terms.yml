@@ -28,9 +28,10 @@
 "Data Steward": "数据管家"
 "Data Stewardship": "数据认责"
 "Data Owner": "数据主人"
-"Data Ownership": "数据权属"
-"Owner": "数据主人" # 自动映射文中简写的 Owner
-"Ownership": "数据权属"
+"Data Ownership": "数据认责 # 在数据治理语境下翻译为'数据认责'（强调责任与义务），而非'数据权属'（强调权利）。当讨论决策权、责任边界、角色分工时使用'认责'；当讨论产权、资产归属时使用'权属'"
+"Enterprise Ownership": "企业认责 # 在数据治理语境下，指企业层面对数据的认责责任，而非企业所有权"
+"Owner": "数据主人 # 在数据治理语境下，指数据主人（承担认责的角色），而非所有者"
+"Ownership": "认责 # 在数据治理语境下翻译为'认责'（强调责任与义务），而非'权属'。当讨论决策权、责任边界、角色分工时使用'认责'；当讨论产权、资产归属时使用'权属'"
 "Skills": "技能 (Skills)" # 不翻译或注明英文
 
 # --- Newly Added (2026-04-26) ---
@@ -79,3 +80,8 @@
 "Matt Steckman": "Matt Steckman"
 "Anduril": "Anduril"
 "Enderlin": "Anduril"
+"TL;DR": "摘要"  # Too Long; Didnt Read, translate to Chinese
+
+# --- Business/Finance Metaphors (2026-09-16) ---
+"Alpha": "核心优势" # 金融借喻：指企业通过AI/数据获得的独有超额收益和竞争优势，不译为"阿尔法"
+"Sovereign Alpha": "独有的核心优势" # 强调不可复制的企业竞争优势
